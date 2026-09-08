@@ -77,29 +77,3 @@ scelta esplicita, quindi `ignoreHTTPSErrors` è **permanente** e `wp-login.php`
 resta raggiungibile su canale non cifrato. È anche il motivo per cui nessun test
 entra in wp-admin e nessuna credenziale WordPress vive nei secrets: su un canale
 non autenticato non ce la manderemmo.
-
-## Stato dell'implementazione
-
-Fatto e verificato in locale: scaffold e config, `targets.json` con loader
-validato, filtro degli errori console con baseline, invarianti strutturali,
-fixture di soppressione overlay, smoke su 16 pagine, test del form, logica pura
-dei CIDR, procedura di rollback.
-
-**Non ancora fatto**, perché in attesa delle risposte alle questioni aperte
-§12.1-12.3 della spec (nome e regione dell'istanza Lightsail, ruolo IAM, repo
-GitHub): lo script `scripts/firewall.mjs` e il workflow `post-update.yml`. Fino
-ad allora la suite si lancia a mano in locale.
-
-**Non si farà**: il workflow notturno di riconciliazione del firewall, deciso di
-non realizzare l'08/09/2026 — vedi il rischio accettato sopra.
-
-## Difetti del sito emersi durante la costruzione
-
-- `/cyber-security/` ha circa **155px di overflow orizzontale** (scrollWidth
-  1435 su viewport 1280). Preesistente, non una regressione. È dichiarato come
-  deroga motivata in `targets.json`: va rimossa quando il layout sarà corretto.
-- Su ogni pagina con un form, MetForm emette in console
-  `reCAPTCHA has already been rendered in this element` — chiama
-  `renderReCaptcha` due volte. Il widget funziona comunque. In baseline.
-- MetForm annulla di suo la fetch di `metform/v1/forms/views/<id>`
-  (`net::ERR_ABORTED`). Innocuo, escluso dal controllo delle richieste fallite.
