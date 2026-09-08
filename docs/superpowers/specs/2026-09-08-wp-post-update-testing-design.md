@@ -120,7 +120,7 @@ La porta 80 risponde e sarebbe la scorciatoia ovvia per aggirare il certificato 
 
 Quindi: `baseURL: https://dev.bsg.it`, `ignoreHTTPSErrors: true` nella config Playwright.
 
-**Costo accettato:** la suite è cieca ai problemi TLS veri. Si rimuove installando un certificato Let's Encrypt (vedi §12, raccomandato: la porta 80 risponde, la challenge HTTP-01 passa immediatamente).
+**Costo accettato, e permanente:** la suite è cieca ai problemi TLS veri. Sarebbe stato rimosso installando un certificato Let's Encrypt, ma l'utente ha deciso l'08/09/2026 di non farlo (§12). Quindi questa riga non è provvisoria: resta.
 
 ### D5 — Smoke test dichiarativo con invarianti strutturali, non visual regression
 
@@ -371,7 +371,7 @@ La suite **non** verifica:
 - che l'entry sia persistita a database (conseguenza di D7)
 - che la consegna della posta funzioni (conseguenza di D11)
 - regressioni visive fini: un layout che cambia restando strutturalmente valido passa (D5)
-- problemi TLS reali (conseguenza di D4)
+- problemi TLS reali, **in permanenza**: `ignoreHTTPSErrors` non verrà rimosso, perché il certificato non si installa (D4, §12)
 - i form di `/carriere/` (wp-job-openings) e `/whistleblower/`, che restano fuori dalla v1
 - performance, accessibilità, SEO oltre la presenza del `<title>`
 
@@ -389,13 +389,13 @@ Bloccanti per l'implementazione:
 Chiuse l'08/09/2026:
 
 - ~~CIDR di riferimento del firewall~~ — non più necessari: il workflow di riconciliazione non si realizza, vedi il rischio accettato in §8
-- ~~Lista definitiva degli URL~~ — `targets.json` contiene le 16 pagine ricavate dai link interni della homepage e verificate contro il sito
+- ~~Lista definitiva degli URL~~ — non si scrive più a mano: si legge dal sitemap di dev a ogni esecuzione, vedi D13
+- ~~Certificato Let's Encrypt su `dev.bsg.it`~~ — **l'utente ha deciso di non installarlo.** Due conseguenze passano da temporanee a permanenti. Primo: `ignoreHTTPSErrors` resta per sempre nella configurazione, quindi la suite non vedrà mai un problema TLS reale (§11). Secondo: `wp-login.php` resta raggiungibile su canale non cifrato, e questo rende **sconsigliabile** l'evoluzione con Application Password della §13, perché manderebbe una credenziale WordPress in chiaro attraverso Internet a ogni esecuzione
 
 Raccomandato, non bloccante:
 
-7. **Certificato Let's Encrypt su `dev.bsg.it`**. La porta 80 risponde, quindi la challenge HTTP-01 passa subito. Risolve in un colpo il certificato, il wp-login in chiaro, e permette di rimuovere `ignoreHTTPSErrors` rendendo la suite sensibile ai problemi TLS veri
-8. **Includere i form di `/carriere/` e `/whistleblower/`**? Il secondo è rilevante anche in senso normativo
-9. **Notifiche su Teams**: GitHub invia già un'email sui workflow falliti. Un canale in più ha senso solo se si scopre di ignorare quell'email
+5. **Includere i form di `/carriere/` e `/whistleblower/`**? Le pagine sono già nello smoke, i loro form no. Il secondo è rilevante anche in senso normativo
+6. **Notifiche su Teams**: GitHub invia già un'email sui workflow falliti. Un canale in più ha senso solo se si scopre di ignorare quell'email
 
 ---
 
@@ -407,7 +407,7 @@ Tutte aggiungibili senza riprogettare, ma **filtrate contro il vincolo di indipe
 
 **Trigger automatico senza codice sul server.** Un job `schedule` notturno può rilevare gli aggiornamenti **leggendo l'HTML pubblico**, senza alcun accesso alla macchina: WordPress ed Elementor espongono la versione nei meta `generator`, e i plugin la espongono nei parametri `?ver=` degli asset. Sono già osservabili dall'esterno la versione del core, di Elementor, di MetForm e di AIOSEO. Il job confronta le versioni lette con un manifest committato nel repo, esegue la suite se qualcosa è cambiato, e aggiorna il manifest. Questa è la strada corretta per automatizzare il trigger, e sostituisce l'idea dell'hook `upgrader_process_complete`.
 
-**Verifica della persistenza delle entry.** Una **Application Password** di WordPress usata in Basic Auth sulle REST API, letta con `request.get()` senza aprire il browser. È configurazione applicativa, non modifica del server, quindi rispetta D12. Costo: reintroduce una credenziale nei secrets, che ha senso solo dopo aver messo un certificato valido (§12.7).
+**Verifica della persistenza delle entry — ora sconsigliata.** Una **Application Password** di WordPress in Basic Auth sulle REST API, letta con `request.get()` senza aprire il browser, rispetterebbe D12 perché è configurazione applicativa e non modifica del server. Ma avrebbe senso solo su un canale cifrato e autenticato, e il certificato non si installa (§12): manderebbe una credenziale WordPress in chiaro attraverso Internet a ogni esecuzione. Resta praticabile solo se un giorno il certificato verrà messo.
 
 **Sink di posta esterno.** Puntare WP Mail SMTP a una casella-trappola esterna è un'impostazione dentro WordPress: rispetta D12 e chiuderebbe l'anello della consegna. È la sola strada compatibile per ottenere copertura sulle email.
 

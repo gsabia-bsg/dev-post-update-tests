@@ -72,6 +72,12 @@ generata, che l'entry sia persistita a database, che la posta venga consegnata,
 le regressioni visive fini, i problemi TLS reali, i form di `/carriere/` e
 `/whistleblower/`, e performance, accessibilità e SEO.
 
+Sul TLS in particolare: `dev.bsg.it` resta con il certificato self-signed per
+scelta esplicita, quindi `ignoreHTTPSErrors` è **permanente** e `wp-login.php`
+resta raggiungibile su canale non cifrato. È anche il motivo per cui nessun test
+entra in wp-admin e nessuna credenziale WordPress vive nei secrets: su un canale
+non autenticato non ce la manderemmo.
+
 ## Stato dell'implementazione
 
 Fatto e verificato in locale: scaffold e config, `targets.json` con loader
