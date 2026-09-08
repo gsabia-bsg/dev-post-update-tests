@@ -42,6 +42,22 @@ L'attività **7** ha un ramo condizionale legato alla questione aperta §12.5 (c
 
 La spec §6 descrive il controllo del CSS come *"CSS realmente applicato (computed style)"*. Il piano lo implementa come **verifica che almeno un foglio di stile risulti caricato e con regole** (`document.styleSheets`), non come confronto di una computed style contro un valore atteso. Ragione: il font di fallback del browser varia fra piattaforme (Chromium su Linux CI e su Windows locale non concordano), e un'asserzione su quello sarebbe instabile — esattamente il tipo di falso positivo che D5 e D6 vogliono evitare. Il controllo scelto intercetta comunque il guasto realistico: foglio in 404 o non accodato.
 
+## Deviazioni emerse eseguendo il piano
+
+Registrate l'08/09/2026, tutte guidate da evidenza raccolta contro il sito reale.
+
+**Il tema non usa il tag `<header>`.** I selettori strutturali che avevo ipotizzato erano sbagliati e facevano fallire tutte e 16 le pagine. Il tema `most` usa `div.main-header`. Verificato su sette pagine che l'insieme universale è `.main-header`, `nav`, `main`, `footer`.
+
+**Soglia di overflow da 2px a 32px, più deroga per pagina.** Il carosello Swiper in homepage produce da solo qualche pixel di scostamento durante l'animazione: misurati 1285 contro 1280, e 1277 in una misura successiva sulla stessa pagina. Una soglia stretta darebbe rosso permanente senza segnalare regressioni. L'invariante mira al layout catastroficamente rotto, non allo sforamento minimo.
+
+In più, `PageTarget` guadagna due campi opzionali non previsti: `overflowTolerancePx` e `notes`, con il validatore che **esige `notes` se c'è una deroga** — la stessa disciplina degli errori console accettati. Serviva perché `/cyber-security/` ha circa 155px di overflow preesistente, che è un difetto vero del sito: dichiararlo con la sua ragione è corretto, silenziarlo alzando la soglia globale non lo sarebbe.
+
+**`ERR_ABORTED` escluso dalle richieste fallite.** L'assunzione del piano — che il solo scoping al primo dominio rendesse superflua una baseline sulle richieste — è stata falsificata: MetForm annulla di suo la fetch di `metform/v1/forms/views/<id>` su ogni pagina con un form, producendo nove falsi positivi. Un abort è una cancellazione decisa dalla pagina, non un caricamento fallito, e il form funziona comunque. I 4xx/5xx e gli altri codici `net::` restano intercettati.
+
+**Il runner di test di Node vuole un glob.** `node --test scripts/lib/` su Node 24 tenta di risolvere la cartella come modulo e fallisce con `MODULE_NOT_FOUND`. Serve `node --test "scripts/**/*.test.mjs"`.
+
+**Playwright 1.63.0** invece di 1.55.0, e `--with-deps` solo in CI: su Windows quel flag non ha effetto.
+
 ---
 
 ### Task 1: Scaffold del repo e configurazione Playwright provata sul sito
