@@ -130,6 +130,8 @@ Il confronto a pixel è **escluso**: banner cookie, popup, caroselli, lazy-load 
 
 Al suo posto, **invarianti strutturali**: il CSS è realmente applicato (si legge una computed style, non solo l'HTTP 200 del foglio), le immagini critiche sono decodificate (`naturalWidth > 0`), non c'è overflow orizzontale, header, nav, main e footer esistono. Questo intercetta il guasto realistico — un foglio di stile in 404, un plugin che svuota una sezione — senza una sola baseline da mantenere.
 
+**Emendamento dell'08/09/2026.** L'esclusione totale del confronto visivo è stata riaperta dall'utente con una domanda legittima: così com'era, la suite non si accorgeva se un aggiornamento *spostava* qualcosa. Il confronto visivo rientra quindi in forma ristretta, vedi D14. Le invarianti strutturali restano il controllo principale su tutte le pagine; il confronto a immagini si applica a pochi elementi scelti.
+
 ### D6 — Gli errori in console sono baselinati, non azzerati
 
 Il sito emette già un errore a riposo (§2.4). Un'asserzione "zero errori" sarebbe rossa dal primo run e verrebbe disattivata entro una settimana.
@@ -200,6 +202,31 @@ Il vincolo lega **l'automazione, non l'amministrazione manuale**: che l'utente i
 Conseguenza sulla portabilità: spostando `dev.bsg.it` su un altro host, l'unica cosa da cambiare è la base URL; togliendo la restrizione IP, lo step del firewall sparisce del tutto.
 
 Conseguenza sulle evoluzioni: ogni voce della §13 va filtrata contro questo vincolo, e due di esse sono escluse per sempre.
+
+### D13 — L'elenco delle pagine si legge dal sitemap di dev, non si scrive a mano
+
+`targets.json` conteneva 16 pagine scritte a mano. Il sitemap di `dev.bsg.it` ne dichiara **28**: la lista era incompleta dal primo giorno, e sarebbe andata alla deriva a ogni pagina pubblicata.
+
+L'elenco viene quindi letto **dal sitemap del sito sotto esame**, a ogni esecuzione. Non da quello di produzione: si testa dev, quindi la lista deve descrivere dev. Verificato l'08/09/2026 che il sitemap di AIOSEO su dev è generato dinamicamente, contiene URL `dev.bsg.it`, e che tutte le 28 pagine dichiarate rispondono 200.
+
+Sitemap inclusi: `page-sitemap` (28 URL), `post-sitemap` (35), `awsm_job_openings-sitemap` (7). **Escluso `metform-form-sitemap`** (4 URL): sono i form stessi, non pagine da visitare. Totale circa 70 URL, cinque minuti di esecuzione.
+
+**Il sitemap è generato da un plugin, quindi due paracadute sono obbligatori:**
+
+1. **Soglia minima.** Se il sitemap restituisce meno di `minPages` URL, il run **fallisce**. Senza questo, un aggiornamento che rompe AIOSEO renderebbe la suite verde per non aver testato niente — il fallimento peggiore possibile.
+2. **Nucleo obbligatorio.** Un elenco `core` di poche pagine in `targets.json`, testate sempre, qualunque cosa dica il sitemap.
+
+`targets.json` conserva quindi: baseline degli errori accettati, `core`, `minPages`, i sitemap da leggere, i pattern di esclusione, le aspettative di default e le deroghe per singola pagina. Smette solo di contenere l'elenco positivo.
+
+### D14 — Confronto visivo su pochi elementi, non su pagine intere
+
+Riapre in parte D5. Il confronto a pixel su pagine intere resta escluso: su questo sito carosello, banner, lazy load e animazioni produrrebbero fallimenti falsi a raffica.
+
+Si fotografano invece **pochi elementi stabili** — testata, piè di pagina, scheda del form — su due pagine. Quattro immagini di riferimento, non sedici pagine. La scelta degli elementi è ciò che rende la cosa praticabile: il carosello sta nel corpo della homepage, quindi restandone fuori il problema principale di instabilità non si presenta.
+
+Misure di stabilità: animazioni congelate (`animations: 'disabled'`), attesa del caricamento dei font, viewport fissa, overlay già soppressi dalla fixture, e una piccola tolleranza sui pixel per l'antialiasing.
+
+**Due vincoli accettati.** Le immagini di riferimento sono legate al sistema operativo che le genera, quindi il confronto vale **solo sulla piattaforma del runner**: gira in un progetto Playwright separato (`visual`), non in `npm test`, così l'esecuzione locale su Windows resta verde e veloce. E ogni modifica di design **voluta** richiede di riapprovare le immagini toccate e committarle.
 
 ---
 

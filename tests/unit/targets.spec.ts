@@ -4,49 +4,46 @@
  * targets.json reale del repo: è la rete contro il refuso.
  */
 import { test, expect } from '@playwright/test';
-import { validateTargets, loadTargets } from '../lib/targets';
+import { validateTargets, loadTargets, targetFor, acceptedErrorsFor } from '../lib/targets';
 
 const valido = {
   baseUrl: 'https://dev.bsg.it',
+  minPages: 20,
+  sitemaps: ['/page-sitemap.xml'],
+  excludePatterns: ['/wp-content/'],
+  core: ['/', '/contact-us/'],
+  defaultExpect: ['.main-header', 'footer'],
+  defaultCriticalImages: 0,
   acceptedConsoleErrors: [{ match: 'qualcosa', reason: 'perché sì' }],
-  pages: [{ path: '/', expect: ['header'], criticalImages: 1 }],
+  overrides: [],
 };
 
 test('accetta una configurazione valida', () => {
   const t = validateTargets(valido);
-  expect(t.pages).toHaveLength(1);
-  expect(t.baseUrl).toBe('https://dev.bsg.it');
+  expect(t.core).toEqual(['/', '/contact-us/']);
+  expect(t.minPages).toBe(20);
 });
 
 test('rifiuta un baseUrl in http, che falserebbe i test', () => {
-  expect(() => validateTargets({ ...valido, baseUrl: 'http://dev.bsg.it' }))
-    .toThrow(/https/i);
+  expect(() => validateTargets({ ...valido, baseUrl: 'http://dev.bsg.it' })).toThrow(/https/i);
 });
 
-test('rifiuta una lista di pagine vuota', () => {
-  expect(() => validateTargets({ ...valido, pages: [] })).toThrow(/almeno una pagina/i);
+test('rifiuta un minPages non intero o nullo', () => {
+  expect(() => validateTargets({ ...valido, minPages: 0 })).toThrow(/minPages/);
+  expect(() => validateTargets({ ...valido, minPages: 1.5 })).toThrow(/minPages/);
 });
 
-test('rifiuta un path che non inizia con slash', () => {
-  expect(() => validateTargets({ ...valido, pages: [{ path: 'contact-us', expect: [], criticalImages: 0 }] }))
-    .toThrow(/slash/i);
+test('rifiuta una lista di sitemap vuota', () => {
+  expect(() => validateTargets({ ...valido, sitemaps: [] })).toThrow(/sitemaps/);
 });
 
-test('rifiuta path duplicati', () => {
-  expect(() => validateTargets({
-    ...valido,
-    pages: [
-      { path: '/', expect: [], criticalImages: 0 },
-      { path: '/', expect: [], criticalImages: 0 },
-    ],
-  })).toThrow(/duplicat/i);
+test('rifiuta un nucleo obbligatorio vuoto: senza di esso un sitemap rotto lascia la suite cieca', () => {
+  expect(() => validateTargets({ ...valido, core: [] })).toThrow(/core/);
 });
 
-test('rifiuta criticalImages negativo o non intero', () => {
-  expect(() => validateTargets({ ...valido, pages: [{ path: '/', expect: [], criticalImages: -1 }] }))
-    .toThrow(/criticalImages/);
-  expect(() => validateTargets({ ...valido, pages: [{ path: '/', expect: [], criticalImages: 1.5 }] }))
-    .toThrow(/criticalImages/);
+test('rifiuta percorsi che non iniziano con slash', () => {
+  expect(() => validateTargets({ ...valido, core: ['contact-us'] })).toThrow(/slash/i);
+  expect(() => validateTargets({ ...valido, sitemaps: ['page-sitemap.xml'] })).toThrow(/slash/i);
 });
 
 test('rifiuta un errore accettato senza motivazione, per non nascondere regressioni', () => {
@@ -57,26 +54,55 @@ test('rifiuta un errore accettato senza motivazione, per non nascondere regressi
 test('rifiuta una deroga alla soglia di overflow senza motivazione', () => {
   expect(() => validateTargets({
     ...valido,
-    pages: [{ path: '/', expect: [], criticalImages: 0, overflowTolerancePx: 200 }],
+    overrides: [{ path: '/x/', overflowTolerancePx: 200 }],
   })).toThrow(/notes/i);
 });
 
-test('accetta una deroga alla soglia di overflow se motivata', () => {
-  const t = validateTargets({
-    ...valido,
-    pages: [{ path: '/', expect: [], criticalImages: 0, overflowTolerancePx: 200, notes: 'difetto noto' }],
-  });
-  expect(t.pages[0].overflowTolerancePx).toBe(200);
-});
-
-test('rifiuta una soglia di overflow non intera o negativa', () => {
+test('rifiuta deroghe duplicate sullo stesso percorso', () => {
   expect(() => validateTargets({
     ...valido,
-    pages: [{ path: '/', expect: [], criticalImages: 0, overflowTolerancePx: -5, notes: 'x' }],
-  })).toThrow(/overflowTolerancePx/);
+    overrides: [{ path: '/x/', criticalImages: 1 }, { path: '/x/', criticalImages: 2 }],
+  })).toThrow(/duplicat/i);
 });
 
-test('il file targets.json del repo è valido e contiene la pagina contatti', () => {
+test('targetFor applica i valori di default a una pagina senza deroghe', () => {
+  const t = validateTargets(valido);
+  expect(targetFor('/blog/', t)).toEqual({
+    path: '/blog/',
+    expect: ['.main-header', 'footer'],
+    criticalImages: 0,
+  });
+});
+
+test('targetFor sovrascrive solo i campi dichiarati nella deroga', () => {
+  const t = validateTargets({
+    ...valido,
+    overrides: [{ path: '/x/', criticalImages: 3 }],
+  });
+  const risultato = targetFor('/x/', t);
+  expect(risultato.criticalImages).toBe(3);
+  // expect non è dichiarato nella deroga, quindi resta quello di default
+  expect(risultato.expect).toEqual(['.main-header', 'footer']);
+});
+
+test('le eccezioni di una pagina si aggiungono a quelle globali, senza valere altrove', () => {
+  const t = validateTargets({
+    ...valido,
+    overrides: [{ path: '/x/', acceptedConsoleErrors: [{ match: 'solo qui', reason: 'motivo' }] }],
+  });
+  expect(acceptedErrorsFor('/x/', t).map((e) => e.match)).toEqual(['qualcosa', 'solo qui']);
+  expect(acceptedErrorsFor('/altro/', t).map((e) => e.match)).toEqual(['qualcosa']);
+});
+
+test('rifiuta un errore accettato per pagina senza motivazione', () => {
+  expect(() => validateTargets({
+    ...valido,
+    overrides: [{ path: '/x/', acceptedConsoleErrors: [{ match: 'x', reason: '' }] }],
+  })).toThrow(/reason/i);
+});
+
+test('il targets.json del repo è valido e ha un nucleo che include la homepage', () => {
   const t = loadTargets();
-  expect(t.pages.map((p) => p.path)).toContain('/contact-us/');
+  expect(t.core).toContain('/');
+  expect(t.sitemaps.length).toBeGreaterThan(0);
 });

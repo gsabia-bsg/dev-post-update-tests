@@ -1,5 +1,31 @@
 {
   "baseUrl": "https://dev.bsg.it",
+
+  "minPages": 20,
+
+  "sitemaps": [
+    "/page-sitemap.xml",
+    "/post-sitemap.xml",
+    "/awsm_job_openings-sitemap.xml"
+  ],
+
+  "excludePatterns": [
+    "/wp-content/",
+    "/metform-form/"
+  ],
+
+  "core": [
+    "/",
+    "/contact-us/",
+    "/services/",
+    "/about-us/",
+    "/cyber-security/"
+  ],
+
+  "defaultExpect": [".main-header", "nav", "main", "footer"],
+
+  "defaultCriticalImages": 0,
+
   "acceptedConsoleErrors": [
     {
       "match": "reCAPTCHA has already been rendered in this element",
@@ -10,28 +36,31 @@
       "reason": "Un iframe di google.com dichiara frame-ancestors 'self' in sola segnalazione, e Chromium lo registra come errore. Visto su /carriere/ l'08/09/2026, verosimilmente legato a wp-job-openings. Non è un guasto, non dipende dal sito e non è riparabile da noi; compare in modo intermittente a seconda di quando l'iframe viene montato. Arriva senza URL di origine, quindi il filtro sul dominio non lo scarta. Il match è volutamente stretto su google.com per non nascondere eventuali violazioni CSP nostre."
     }
   ],
-  "pages": [
-    { "path": "/", "expect": [".main-header", "nav", "main", "footer"], "criticalImages": 1 },
-    { "path": "/about-us/", "expect": [".main-header", "nav", "main", "footer"], "criticalImages": 1 },
-    { "path": "/services/", "expect": [".main-header", "nav", "main", "footer"], "criticalImages": 1 },
-    { "path": "/it-consulting/", "expect": [".main-header", "nav", "main", "footer"], "criticalImages": 1 },
+
+  "overrides": [
+    {
+      "path": "/",
+      "criticalImages": 1
+    },
+    {
+      "path": "/contact-us/",
+      "expect": [".main-header", "nav", "main", "footer", ".metform-form-content"],
+      "criticalImages": 0
+    },
+    {
+      "path": "/job-openings/",
+      "acceptedConsoleErrors": [
+        {
+          "match": "elementorFrontendConfig is not defined",
+          "reason": "DIFETTO REALE DEL SITO, non una regressione: su questa pagina uno script che dipende da Elementor gira senza che la sua configurazione sia stata accodata, e lancia un'eccezione non gestita. Rilevato l'08/09/2026 al primo controllo di questa pagina. È dichiarato solo qui e non globalmente, così se lo stesso errore comparisse su altre pagine lo vedremmo. Da rimuovere quando la pagina sarà sistemata."
+        }
+      ]
+    },
     {
       "path": "/cyber-security/",
-      "expect": [".main-header", "nav", "main", "footer"],
-      "criticalImages": 1,
       "overflowTolerancePx": 200,
+      "criticalImages": 1,
       "notes": "Overflow orizzontale preesistente di circa 155px (scrollWidth 1435 su viewport 1280), misurato l'08/09/2026 prima di qualunque aggiornamento. È un difetto di layout del sito, non una regressione: segnalato al proprietario. Riportare questa pagina alla soglia di default quando sarà corretto, così la deroga non copre regressioni future."
-    },
-    { "path": "/managedservices/", "expect": [".main-header", "nav", "main", "footer"], "criticalImages": 1 },
-    { "path": "/customservices/", "expect": [".main-header", "nav", "main", "footer"], "criticalImages": 1 },
-    { "path": "/it-training/", "expect": [".main-header", "nav", "main", "footer"], "criticalImages": 1 },
-    { "path": "/software-development-custom-solution/", "expect": [".main-header", "nav", "main", "footer"], "criticalImages": 1 },
-    { "path": "/sostenibilita/", "expect": [".main-header", "nav", "main", "footer"], "criticalImages": 1 },
-    { "path": "/partner/", "expect": [".main-header", "nav", "main", "footer"], "criticalImages": 1 },
-    { "path": "/carriere/", "expect": [".main-header", "nav", "main", "footer"], "criticalImages": 0 },
-    { "path": "/bsg-hub/", "expect": [".main-header", "nav", "main", "footer"], "criticalImages": 0 },
-    { "path": "/blog/", "expect": [".main-header", "nav", "main", "footer"], "criticalImages": 1 },
-    { "path": "/whistleblower/", "expect": [".main-header", "nav", "main", "footer"], "criticalImages": 0 },
-    { "path": "/contact-us/", "expect": [".main-header", "nav", "main", "footer", ".metform-form-content"], "criticalImages": 0 }
+    }
   ]
 }

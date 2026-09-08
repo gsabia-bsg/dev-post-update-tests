@@ -1,31 +1,98 @@
 /**
- * Legge e valida `targets.json`, il file che elenca le pagine da controllare.
- * Rifiuta un baseUrl in http, i path duplicati, e le eccezioni senza
- * motivazione — così il file non diventa un tappeto sotto cui nascondere le
- * regressioni.
+ * Legge e valida `targets.json`, che non contiene più l'elenco delle pagine —
+ * quello arriva dal sitemap — ma le regole: nucleo obbligatorio, soglia minima,
+ * aspettative di default, deroghe per pagina e baseline degli errori noti.
+ * Rifiuta le eccezioni senza motivazione, così il file non diventa un tappeto
+ * sotto cui nascondere le regressioni.
  */
 import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { dirname, resolve } from 'node:path';
 
 export type AcceptedConsoleError = { match: string; reason: string };
+
+/** Deroga alle aspettative di default per una singola pagina. */
+export type Override = {
+  path: string;
+  expect?: string[];
+  criticalImages?: number;
+  overflowTolerancePx?: number;
+  notes?: string;
+  /** Errori accettati solo su questa pagina: più stretto della lista globale. */
+  acceptedConsoleErrors?: AcceptedConsoleError[];
+};
+
+export type Targets = {
+  baseUrl: string;
+  minPages: number;
+  sitemaps: string[];
+  excludePatterns: string[];
+  core: string[];
+  defaultExpect: string[];
+  defaultCriticalImages: number;
+  acceptedConsoleErrors: AcceptedConsoleError[];
+  overrides: Override[];
+};
+
+/** Ciò che un test riceve per una pagina: i default con l'eventuale deroga applicata. */
 export type PageTarget = {
   path: string;
   expect: string[];
   criticalImages: number;
-  /** Deroga alla soglia di overflow, per difetti preesistenti. Richiede `notes`. */
   overflowTolerancePx?: number;
-  /** Motivazione di una deroga. Obbligatoria se c'è una deroga. */
   notes?: string;
-};
-export type Targets = {
-  baseUrl: string;
-  acceptedConsoleErrors: AcceptedConsoleError[];
-  pages: PageTarget[];
 };
 
 function isRecord(v: unknown): v is Record<string, unknown> {
   return typeof v === 'object' && v !== null && !Array.isArray(v);
+}
+
+function stringArray(v: unknown, campo: string): string[] {
+  if (!Array.isArray(v) || v.some((s) => typeof s !== 'string')) {
+    throw new Error(`targets.${campo} deve essere un array di stringhe`);
+  }
+  return v as string[];
+}
+
+function pathArray(v: unknown, campo: string, minLen: number): string[] {
+  const arr = stringArray(v, campo);
+  if (arr.length < minLen) {
+    throw new Error(`targets.${campo} deve contenere almeno ${minLen} voci`);
+  }
+  for (const p of arr) {
+    if (!p.startsWith('/')) throw new Error(`targets.${campo}: "${p}" deve iniziare con uno slash`);
+  }
+  return arr;
+}
+
+function positiveInt(v: unknown, campo: string): number {
+  if (typeof v !== 'number' || !Number.isInteger(v) || v <= 0) {
+    throw new Error(`targets.${campo} deve essere un intero positivo`);
+  }
+  return v;
+}
+
+function nonNegativeInt(v: unknown, campo: string): number {
+  if (typeof v !== 'number' || !Number.isInteger(v) || v < 0) {
+    throw new Error(`targets.${campo} deve essere un intero non negativo`);
+  }
+  return v;
+}
+
+/** Ogni errore accettato deve dichiarare perché lo è, globale o per pagina. */
+function acceptedErrors(v: unknown, campo: string): AcceptedConsoleError[] {
+  const arr = v ?? [];
+  if (!Array.isArray(arr)) throw new Error(`targets.${campo} deve essere un array`);
+  return arr.map((e, i) => {
+    if (!isRecord(e)) throw new Error(`${campo}[${i}] deve essere un oggetto`);
+    if (typeof e.match !== 'string' || e.match.trim() === '') {
+      throw new Error(`${campo}[${i}].match mancante`);
+    }
+    if (typeof e.reason !== 'string' || e.reason.trim() === '') {
+      throw new Error(`${campo}[${i}].reason mancante: ogni errore accettato deve dichiarare perché lo è`);
+    }
+    return { match: e.match, reason: e.reason };
+  });
 }
 
 export function validateTargets(raw: unknown): Targets {
@@ -38,78 +105,84 @@ export function validateTargets(raw: unknown): Targets {
     );
   }
 
-  const acceptedRaw = raw.acceptedConsoleErrors ?? [];
-  if (!Array.isArray(acceptedRaw)) throw new Error('targets.acceptedConsoleErrors deve essere un array');
-  const acceptedConsoleErrors: AcceptedConsoleError[] = acceptedRaw.map((e, i) => {
-    if (!isRecord(e)) throw new Error(`acceptedConsoleErrors[${i}] deve essere un oggetto`);
-    const match = e.match;
-    const reason = e.reason;
-    if (typeof match !== 'string' || match.trim() === '') {
-      throw new Error(`acceptedConsoleErrors[${i}].match mancante`);
-    }
-    if (typeof reason !== 'string' || reason.trim() === '') {
-      throw new Error(
-        `acceptedConsoleErrors[${i}].reason mancante: ogni errore accettato deve dichiarare perché lo è`,
-      );
-    }
-    return { match, reason };
-  });
+  const minPages = positiveInt(raw.minPages, 'minPages');
+  const sitemaps = pathArray(raw.sitemaps, 'sitemaps', 1);
+  const excludePatterns = stringArray(raw.excludePatterns ?? [], 'excludePatterns');
+  const core = pathArray(raw.core, 'core', 1);
+  const defaultExpect = stringArray(raw.defaultExpect ?? [], 'defaultExpect');
+  const defaultCriticalImages = nonNegativeInt(raw.defaultCriticalImages ?? 0, 'defaultCriticalImages');
 
-  const pagesRaw = raw.pages;
-  if (!Array.isArray(pagesRaw) || pagesRaw.length === 0) {
-    throw new Error('targets.pages deve contenere almeno una pagina');
-  }
-  const pages: PageTarget[] = pagesRaw.map((p, i) => {
-    if (!isRecord(p)) throw new Error(`pages[${i}] deve essere un oggetto`);
-    const path = p.path;
-    if (typeof path !== 'string' || !path.startsWith('/')) {
-      throw new Error(`pages[${i}].path deve iniziare con uno slash`);
+  const acceptedConsoleErrors = acceptedErrors(raw.acceptedConsoleErrors, 'acceptedConsoleErrors');
+
+  const overridesRaw = raw.overrides ?? [];
+  if (!Array.isArray(overridesRaw)) throw new Error('targets.overrides deve essere un array');
+  const overrides: Override[] = overridesRaw.map((o, i) => {
+    if (!isRecord(o)) throw new Error(`overrides[${i}] deve essere un oggetto`);
+    if (typeof o.path !== 'string' || !o.path.startsWith('/')) {
+      throw new Error(`overrides[${i}].path deve iniziare con uno slash`);
     }
-    const expectRaw = p.expect ?? [];
-    if (!Array.isArray(expectRaw) || expectRaw.some((s) => typeof s !== 'string')) {
-      throw new Error(`pages[${i}].expect deve essere un array di stringhe`);
+    const out: Override = { path: o.path };
+    if (o.expect !== undefined) out.expect = stringArray(o.expect, `overrides[${i}].expect`);
+    if (o.criticalImages !== undefined) {
+      out.criticalImages = nonNegativeInt(o.criticalImages, `overrides[${i}].criticalImages`);
     }
-    const criticalImages = p.criticalImages ?? 0;
-    if (typeof criticalImages !== 'number' || !Number.isInteger(criticalImages) || criticalImages < 0) {
-      throw new Error(`pages[${i}].criticalImages deve essere un intero non negativo`);
+    if (o.overflowTolerancePx !== undefined) {
+      out.overflowTolerancePx = positiveInt(o.overflowTolerancePx, `overrides[${i}].overflowTolerancePx`);
     }
-    const overflowRaw = p.overflowTolerancePx;
-    let overflowTolerancePx: number | undefined;
-    if (overflowRaw !== undefined) {
-      if (typeof overflowRaw !== 'number' || !Number.isInteger(overflowRaw) || overflowRaw <= 0) {
-        throw new Error(`pages[${i}].overflowTolerancePx deve essere un intero positivo`);
+    if (o.notes !== undefined) {
+      if (typeof o.notes !== 'string' || o.notes.trim() === '') {
+        throw new Error(`overrides[${i}].notes, se presente, deve essere una stringa non vuota`);
       }
-      overflowTolerancePx = overflowRaw;
+      out.notes = o.notes;
     }
-
-    const notesRaw = p.notes;
-    if (notesRaw !== undefined && (typeof notesRaw !== 'string' || notesRaw.trim() === '')) {
-      throw new Error(`pages[${i}].notes, se presente, deve essere una stringa non vuota`);
-    }
-
-    // stessa disciplina degli errori console accettati: ogni deroga dichiara la sua ragione
-    if (overflowTolerancePx !== undefined && typeof notesRaw !== 'string') {
-      throw new Error(
-        `pages[${i}]: overflowTolerancePx richiede notes che ne spieghi la ragione`,
+    if (o.acceptedConsoleErrors !== undefined) {
+      out.acceptedConsoleErrors = acceptedErrors(
+        o.acceptedConsoleErrors,
+        `overrides[${i}].acceptedConsoleErrors`,
       );
     }
-
-    return {
-      path,
-      expect: expectRaw as string[],
-      criticalImages,
-      ...(overflowTolerancePx !== undefined ? { overflowTolerancePx } : {}),
-      ...(typeof notesRaw === 'string' ? { notes: notesRaw } : {}),
-    };
+    // stessa disciplina degli errori accettati: ogni deroga dichiara la sua ragione
+    if (out.overflowTolerancePx !== undefined && out.notes === undefined) {
+      throw new Error(`overrides[${i}]: overflowTolerancePx richiede notes che ne spieghi la ragione`);
+    }
+    return out;
   });
 
-  const seen = new Set<string>();
-  for (const p of pages) {
-    if (seen.has(p.path)) throw new Error(`pages: path duplicato ${p.path}`);
-    seen.add(p.path);
+  const visti = new Set<string>();
+  for (const o of overrides) {
+    if (visti.has(o.path)) throw new Error(`targets.overrides: deroga duplicata per ${o.path}`);
+    visti.add(o.path);
   }
 
-  return { baseUrl, acceptedConsoleErrors, pages };
+  return {
+    baseUrl,
+    minPages,
+    sitemaps,
+    excludePatterns,
+    core,
+    defaultExpect,
+    defaultCriticalImages,
+    acceptedConsoleErrors,
+    overrides,
+  };
+}
+
+export function targetFor(path: string, t: Targets): PageTarget {
+  const o = t.overrides.find((x) => x.path === path);
+  const risultato: PageTarget = {
+    path,
+    expect: o?.expect ?? t.defaultExpect,
+    criticalImages: o?.criticalImages ?? t.defaultCriticalImages,
+  };
+  if (o?.overflowTolerancePx !== undefined) risultato.overflowTolerancePx = o.overflowTolerancePx;
+  if (o?.notes !== undefined) risultato.notes = o.notes;
+  return risultato;
+}
+
+/** Errori accettati per una pagina: quelli globali più quelli dichiarati solo su di lei. */
+export function acceptedErrorsFor(path: string, t: Targets): AcceptedConsoleError[] {
+  const o = t.overrides.find((x) => x.path === path);
+  return [...t.acceptedConsoleErrors, ...(o?.acceptedConsoleErrors ?? [])];
 }
 
 const repoRoot = resolve(dirname(fileURLToPath(import.meta.url)), '..', '..');
