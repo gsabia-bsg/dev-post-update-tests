@@ -110,7 +110,7 @@ Se lo stato originale prevedeva la 443 completamente chiusa, il ripristino usa i
 
 L'API `PutInstancePublicPorts` **chiude tutte le porte non elencate nella richiesta** e cancellerebbe l'allowlist dell'ufficio, chiudendo fuori l'utente dal proprio sito. Per questo la policy IAM **non concede** `lightsail:PutInstancePublicPorts`: il workflow non deve avere la capacità fisica di provocare quel danno.
 
-La lista dei CIDR legittimi va committata nel repo, così il workflow di riconciliazione (§8) sa sempre a quale stato tornare.
+Il ripristino si basa **esclusivamente** sullo stato letto al passo 1 e salvato per la durata del run: nessuna lista di riferimento è committata nel repo. Vedi il rischio accettato in §8.
 
 Nota da verificare al primo run: si assume che `OpenInstancePublicPorts` sovrascriva la lista CIDR della sola porta indicata, lasciando intatte le altre porte.
 
@@ -303,7 +303,7 @@ Scritta una volta come fixture Playwright, si applica a tutta la suite.
 - **Policy IAM ristretta** a `GetInstancePortStates`, `OpenInstancePublicPorts` e `CloseInstancePublicPorts` sulla singola istanza. `PutInstancePublicPorts` **non concessa**, per rendere impossibile la cancellazione dell'allowlist
 - **Finestra di apertura minima:** solo la 443, solo l'IP del runner, solo per la durata del run
 - **Chiusura in `if: always()`**, perché un test in timeout non lasci la porta aperta
-- **Workflow di riconciliazione giornaliero** che riporta il firewall alla lista committata: se un runner viene ucciso in modo brutale, `always()` può non eseguire
+- **Rischio accettato, senza rete di sicurezza automatica.** Se il runner viene ucciso di colpo — la macchina virtuale muore, il job è cancellato brutalmente — lo step `if: always()` può non eseguire e la 443 resta aperta all'IP di quel runner, che GitHub poi riassegna a un altro suo cliente. Il rischio concreto è che un utente qualunque di GitHub Actions raggiunga `dev.bsg.it`, dove `wp-login.php` risponde in chiaro su HTTP. Era previsto un workflow di riconciliazione giornaliero per coprirlo; **l'utente ha deciso l'08/09/2026 di non realizzarlo**, giudicando il rischio residuo accettabile rispetto al costo di mantenere una lista di CIDR di riferimento. Se un giorno lo si volesse, la versione da preferire è quella che si autocostruisce il riferimento leggendolo dal firewall al primo avvio, senza nulla da trascrivere a mano. Nel frattempo il controllo è manuale: `aws lightsail get-instance-port-states` dopo un run finito male
 - **Repo privato**
 - **Chiavi reCAPTCHA di test solo su dev** (D9)
 - **Nessuna credenziale WordPress** in nessun secret (D7)
@@ -351,11 +351,14 @@ La suite **non** verifica:
 Bloccanti per l'implementazione:
 
 1. **Nome esatto dell'istanza Lightsail e regione** — servono per la policy IAM e le chiamate API
-2. **CIDR attualmente consentiti** sulle porte 80 e 443 nel firewall Lightsail — da committare come lista di riferimento
-3. **Chi crea il ruolo IAM** su AWS: serve un'utenza con permessi IAM, non solo Lightsail
-4. **Repo GitHub**: organizzazione e nome, da creare o esistente
-5. **Chiavi reCAPTCHA di test su dev**: si configurano o no? Decide se il test del form invia davvero o si limita al rendering (D9)
-6. **Lista definitiva degli URL** per `targets.json`, a partire dai candidati di §5
+2. **Chi crea il ruolo IAM** su AWS: serve un'utenza con permessi IAM, non solo Lightsail
+3. **Repo GitHub**: organizzazione e nome, da creare o esistente
+4. **Chiavi reCAPTCHA di test su dev**: si configurano o no? Decide se il test del form invia davvero o si limita al rendering (D9)
+
+Chiuse l'08/09/2026:
+
+- ~~CIDR di riferimento del firewall~~ — non più necessari: il workflow di riconciliazione non si realizza, vedi il rischio accettato in §8
+- ~~Lista definitiva degli URL~~ — `targets.json` contiene le 16 pagine ricavate dai link interni della homepage e verificate contro il sito
 
 Raccomandato, non bloccante:
 

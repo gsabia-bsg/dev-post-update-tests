@@ -28,15 +28,28 @@ Su Linux (e in CI) il browser si installa con `npx playwright install --with-dep
 | `RUN_ID` | test del form | Identificativo scritto nel messaggio inviato, per riconoscere le submission di test |
 | `RECAPTCHA_TEST_KEYS` | test del form | `true` solo se su dev sono configurate le chiavi reCAPTCHA di test; altrimenti il test di invio resta skippato |
 
-## Contratto sul firewall
+## Come il workflow attraversa il firewall
 
-`firewall-allowlist.json` è la **fonte di verità** dei CIDR legittimi sulle porte
-80 e 443. Il workflow di riconciliazione riporta il firewall a quella lista e
-**fallisce** se ha trovato differenze. Se aggiungi legittimamente un IP dalla
-console Lightsail, committa la modifica anche qui.
+`dev.bsg.it` ha una restrizione per IP nel firewall Lightsail, quindi un runner
+GitHub non lo raggiunge. Il workflow, a ogni esecuzione:
 
-I suoi `cidrs` sono **ancora vuoti**: vanno riempiti con i valori reali prima di
-eseguire il workflow di riconciliazione, altrimenti chiuderebbe fuori tutti.
+1. legge i CIDR attualmente consentiti sulla 443
+2. li riscrive aggiungendo l'IP del runner
+3. esegue i test
+4. riscrive **esattamente** l'insieme che aveva letto, in uno step `if: always()`
+
+Non esiste nessuna lista di riferimento committata: il ripristino si basa solo su
+ciò che è stato letto all'inizio del run.
+
+**Rischio accettato.** Se il runner viene ucciso di colpo, `if: always()` può non
+eseguire e la 443 resta aperta all'IP di quel runner, che GitHub poi riassegna a
+un altro suo cliente. Era previsto un controllo notturno di riconciliazione per
+coprirlo: si è deciso di non realizzarlo (spec §8). Dopo un run finito male in
+modo anomalo, il controllo è manuale:
+
+```
+aws lightsail get-instance-port-states --instance-name NOME --region REGIONE
+```
 
 ## Lanciare i test
 
@@ -67,10 +80,12 @@ fixture di soppressione overlay, smoke su 16 pagine, test del form, logica pura
 dei CIDR, procedura di rollback.
 
 **Non ancora fatto**, perché in attesa delle risposte alle questioni aperte
-§12.1-12.4 della spec (nome e regione dell'istanza Lightsail, CIDR attuali,
-ruolo IAM, repo GitHub): lo script `scripts/firewall.mjs`, il workflow
-`post-update.yml`, il workflow `firewall-reconcile.yml`. Fino ad allora la suite
-si lancia a mano in locale.
+§12.1-12.3 della spec (nome e regione dell'istanza Lightsail, ruolo IAM, repo
+GitHub): lo script `scripts/firewall.mjs` e il workflow `post-update.yml`. Fino
+ad allora la suite si lancia a mano in locale.
+
+**Non si farà**: il workflow notturno di riconciliazione del firewall, deciso di
+non realizzare l'08/09/2026 — vedi il rischio accettato sopra.
 
 ## Difetti del sito emersi durante la costruzione
 

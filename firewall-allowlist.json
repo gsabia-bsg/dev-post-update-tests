@@ -1,7 +1,0 @@
-{
-  "_nota": "Fonte di verita dei CIDR legittimi sul firewall Lightsail. DA RIEMPIERE con i valori reali letti da Lightsail > Networking > IPv4 Firewall (questione aperta 12.2 della spec). Finche i cidrs sono vuoti il workflow di riconciliazione NON va eseguito: chiuderebbe fuori tutti. Se aggiungi legittimamente un IP dalla console, committa la modifica anche qui.",
-  "portStates": [
-    { "fromPort": 80, "toPort": 80, "protocol": "tcp", "cidrs": [] },
-    { "fromPort": 443, "toPort": 443, "protocol": "tcp", "cidrs": [] }
-  ]
-}

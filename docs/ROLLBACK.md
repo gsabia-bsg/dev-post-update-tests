@@ -50,13 +50,17 @@ mano:
 3. **Sposta l'IP statico** dalla vecchia alla nuova istanza: Lightsail →
    Networking → l'IP statico → Attach to instance
 4. Verifica che `https://dev.bsg.it` risponda dalla nuova istanza
-5. **Riapplica il firewall**: la nuova istanza nasce con le regole di default,
-   non con la tua allowlist. Lancia il workflow di riconciliazione:
-   `gh workflow run firewall-reconcile.yml`
+5. **Riapplica a mano la restrizione IP**: la nuova istanza nasce con le regole
+   di default, non con la tua allowlist. Vai su Lightsail → la nuova istanza →
+   Networking → IPv4 Firewall e rimetti le stesse restrizioni che avevi sulla
+   vecchia. Conviene fotografarle **prima** del ripristino, con
+   `aws lightsail get-instance-port-states --instance-name VECCHIA` oppure con
+   uno screenshot della console
 6. Solo dopo aver verificato tutto, dismetti la vecchia istanza
 
-Il passo 5 è quello che si dimentica: senza di esso l'istanza nuova è esposta o
-inaccessibile, a seconda dei default.
+Il passo 5 è quello che si dimentica: senza di esso l'istanza nuova è esposta a
+Internet o inaccessibile, a seconda dei default. Non c'è nessun automatismo che
+lo faccia per te — è una scelta consapevole, documentata nella spec §8.
 
 ## Se dopo il ripristino il certificato cambia
 
