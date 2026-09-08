@@ -1,0 +1,388 @@
+# Test automatizzati post-aggiornamento — dev.bsg.it
+
+**Data:** 8 settembre 2026
+**Stato:** design approvato, non ancora implementato
+**Ambito:** solo `dev.bsg.it` (staging). La produzione non è toccata da questo sistema.
+
+---
+
+## 1. Obiettivo
+
+Dopo ogni aggiornamento manuale di WordPress, di un plugin o del tema su `dev.bsg.it`, poter verificare in pochi minuti — premendo un pulsante — che il sito non si sia rotto, con una diagnosi utilizzabile quando qualcosa fallisce.
+
+**Fuori ambito, deliberatamente:**
+
+- eseguire gli aggiornamenti (restano manuali, da wp-admin)
+- rollback automatico (resta una procedura manuale documentata)
+- testare la produzione
+- monitoraggio continuo o uptime check
+
+---
+
+## 2. Stato dell'ambiente rilevato l'8 settembre 2026
+
+Questi fatti sono stati verificati direttamente e hanno determinato le decisioni della sezione 3. Vanno riverificati se l'ambiente cambia.
+
+| Aspetto | Rilevazione |
+|---|---|
+| Hosting | AWS Lightsail, IP statico `3.73.112.45` |
+| Certificato TLS | Self-signed, `CN=3.73.112.45`, SAN contiene solo l'IP, valido 14/07/2026 → 11/07/2036. Non copre `dev.bsg.it`: qualunque client che verifica i certificati fallisce sia per root non fidata sia per hostname assente |
+| HTTP porta 80 | Risponde `200` senza redirect verso HTTPS |
+| Restrizione accessi | Firewall dell'istanza Lightsail (confermato dall'utente). Non Wordfence, non `.htaccess` |
+| wp-admin | Nessun 2FA attivo |
+| Core e stack | WordPress 7.1, Elementor 4.2.4 + Elementor Pro, MetForm 4.3.0, tema `most`, AIOSEO 5.0.1.1 |
+| Posta | Nessun mailer configurato. `wp_mail()` fallisce; il form mostra *"Something went wrong. Please setup your SMTP mail server."* WP Mail SMTP registra comunque il tentativo nel Registro delle email |
+| Pagina contatti | `/contact-us/` (non `/contatti/`, che è 404 gestita dal plugin Redirection) |
+
+### 2.1 Plugin che influenzano i test
+
+- `cookie-notice` + `wp-consent-api` — banner cookie, visibile al caricamento, si accetta con `#cn-accept-cookie`
+- `wordpress-popup` (Hustle) — un modulo attivo sulla pagina contatti, si chiude con `.hustle-button-close`
+- `ai-chat-widget` — widget di chat, radice `#ai-chat-widget-root`
+- `wordfence` + `wordfence-login-security` — rate limiting e blocco IP applicativo: possono bloccare il runner
+- `all-in-one-wp-migration` — indica che `dev` è con ogni probabilità un clone della produzione, quindi contiene dati personali reali
+- `code-snippets` — permette di inserire hook lato server senza SSH, se in futuro servisse
+- `redirection`, `mailchimp-for-wp`, `wp-job-openings`, `google-site-kit`, `wp-mail-smtp`
+
+### 2.2 Il form di contatto
+
+Reso da un widget Elementor di MetForm, **idratato lato client** da un'app React: l'HTML sorgente contiene `className` invece di `class` e input senza attributi, quindi i selettori esistono solo dopo il mount. I test devono attendere l'idratazione.
+
+| Elemento | Selettore stabile |
+|---|---|
+| Nome | `input[name="mf-first-name"]` |
+| Email | `input[name="mf-email"]` |
+| Oggetto | `input[name="mf-subject"]` |
+| Messaggio | `textarea[name="mf-textarea"]` |
+| Consenso GDPR (obbligatorio) | `input[name="mf-gdpr-consent"]` |
+| Invio | `.metform-submit-btn` (etichetta "Invia") |
+| Token captcha | `#g-recaptcha-response` |
+
+Gli attributi `id` sono generati con suffissi casuali (`mf-input-text-184663a1`) e cambiano al risalvataggio del form: **non vanno usati come selettori**. Nessun campo porta l'attributo HTML `required`: la validazione è JS e server-side, quindi i test devono attendere i messaggi di MetForm e non affidarsi alla validazione nativa del browser.
+
+L'endpoint di invio sta sotto il namespace REST `metform/v1/entries`.
+
+### 2.3 reCAPTCHA
+
+È **v2 a rendering esplicito**: `api.js?render=explicit`, `grecaptcha.render()`, iframe `api2/anchor` (la casella) e `api2/bframe` (la sfida). La stessa site key è usata da MetForm e da Hustle, configurate separatamente.
+
+### 2.4 Difetto preesistente da conoscere
+
+La pagina contatti emette **un errore in console a ogni caricamento**, prima di qualunque aggiornamento:
+
+```
+Error: reCAPTCHA has already been rendered in this element
+  at metform/build/frontend/app/index.js ... renderReCaptcha ... window.onload
+```
+
+MetForm chiama `renderReCaptcha` due volte, a idratazione e di nuovo a `window.onload`; la seconda passata trova l'elemento già occupato. **Verificato che il widget dei contatti è comunque renderizzato e funzionante** (iframe `anchor` presente e visibile); il div vuoto appartiene a Hustle, che monta il proprio captcha all'apertura del popup. È un difetto di idempotenza di MetForm, senza effetto sul form.
+
+Questo fatto è la ragione della decisione D6.
+
+---
+
+## 3. Decisioni architetturali
+
+### D1 — Il trigger è manuale (`workflow_dispatch`)
+
+Gli aggiornamenti restano manuali; i test si lanciano a mano dopo averli fatti. Il workflow espone un campo di input testuale libero (*"cosa hai aggiornato"*) che finisce nel titolo del run e nel report, così lo storico resta leggibile a mesi di distanza.
+
+`workflow_dispatch`, `schedule` e `repository_dispatch` convivono nello stesso file: passare in futuro al controllo notturno o a un hook WordPress è un'aggiunta di poche righe, non una riprogettazione.
+
+**Conseguenza accettata:** il rollback resta manuale (vedi D10), perché quando la CI entra in scena l'aggiornamento è già avvenuto.
+
+### D2 — Runner GitHub-hosted, non self-hosted sull'istanza
+
+Un runner sulla Lightsail eviterebbe il problema dell'allowlist, ma i test competerebbero con WordPress e MySQL per RAM e CPU, e misurare il sito dalla macchina che lo serve falsa i risultati. I runner GitHub-hosted non aggiungono carico allo staging.
+
+### D3 — Accesso via allowlist dinamica del firewall Lightsail, con read-modify-restore
+
+Il runner assume un ruolo AWS via **OIDC** (nessuna chiave statica in GitHub), aggiunge il proprio IP alla lista consentita sulla 443, esegue i test, e ripristina lo stato iniziale.
+
+**Il pattern è obbligatoriamente read-modify-restore:**
+
+1. `lightsail:GetInstancePortStates` — leggi i CIDR attualmente consentiti
+2. `lightsail:OpenInstancePublicPorts` — riscrivi la 443 con i CIDR originali **più** l'IP del runner
+3. esegui i test
+4. `lightsail:OpenInstancePublicPorts` — riscrivi la 443 con **esattamente** l'insieme originale, in uno step `if: always()`
+
+Se lo stato originale prevedeva la 443 completamente chiusa, il ripristino usa invece `lightsail:CloseInstancePublicPorts`: è la ragione per cui quell'azione compare nella policy IAM di §8 pur non essendo usata nel percorso normale.
+
+L'API `PutInstancePublicPorts` **chiude tutte le porte non elencate nella richiesta** e cancellerebbe l'allowlist dell'ufficio, chiudendo fuori l'utente dal proprio sito. Per questo la policy IAM **non concede** `lightsail:PutInstancePublicPorts`: il workflow non deve avere la capacità fisica di provocare quel danno.
+
+La lista dei CIDR legittimi va committata nel repo, così il workflow di riconciliazione (§8) sa sempre a quale stato tornare.
+
+Nota da verificare al primo run: si assume che `OpenInstancePublicPorts` sovrascriva la lista CIDR della sola porta indicata, lasciando intatte le altre porte.
+
+### D4 — I test girano su HTTPS con `ignoreHTTPSErrors`, mai su HTTP
+
+La porta 80 risponde e sarebbe la scorciatoia ovvia per aggirare il certificato self-signed, **ma falsa il test**: i font Poppins di Elementor sono referenziati con URL assoluti `https://`, quindi caricando la pagina in `http://` finiscono cross-origin, CORS li blocca e i font non caricano. Si collauderebbe una pagina che nessun visitatore vede, con dieci errori in console inesistenti nella realtà.
+
+Quindi: `baseURL: https://dev.bsg.it`, `ignoreHTTPSErrors: true` nella config Playwright.
+
+**Costo accettato:** la suite è cieca ai problemi TLS veri. Si rimuove installando un certificato Let's Encrypt (vedi §12, raccomandato: la porta 80 risponde, la challenge HTTP-01 passa immediatamente).
+
+### D5 — Smoke test dichiarativo con invarianti strutturali, non visual regression
+
+Gli URL da controllare e i selettori attesi stanno in un file di dati (`targets.json`); un unico test generico ci cicla sopra. Aggiungere una pagina è una riga di JSON.
+
+Il confronto a pixel è **escluso**: banner cookie, popup, caroselli, lazy-load e font generano falsi positivi continui, le baseline devono essere prodotte sullo stesso OS del runner, e ogni modifica legittima di design richiede di riapprovarle. Una suite che sta rossa per motivi ingiustificati smette di essere guardata, e allora non serve a niente.
+
+Al suo posto, **invarianti strutturali**: il CSS è realmente applicato (si legge una computed style, non solo l'HTTP 200 del foglio), le immagini critiche sono decodificate (`naturalWidth > 0`), non c'è overflow orizzontale, header, nav, main e footer esistono. Questo intercetta il guasto realistico — un foglio di stile in 404, un plugin che svuota una sezione — senza una sola baseline da mantenere.
+
+### D6 — Gli errori in console sono baselinati, non azzerati
+
+Il sito emette già un errore a riposo (§2.4). Un'asserzione "zero errori" sarebbe rossa dal primo run e verrebbe disattivata entro una settimana.
+
+`targets.json` contiene quindi una lista di **firme d'errore note e accettate**; il test falla solo su errori **nuovi**. Inoltre l'asserzione è **limitata al primo dominio**: si fallisce solo su errori originati da `dev.bsg.it`, ignorando il rumore di Site Kit, reCAPTCHA e del chat widget.
+
+Ogni voce della lista di errori accettati porta una nota che spiega perché è accettata, così la lista non diventa un tappeto sotto cui nascondere le regressioni.
+
+### D7 — Nessun accesso a wp-admin
+
+I test restano interamente sulla parte pubblica. Tre ragioni:
+
+- nessuna credenziale WordPress nei GitHub Secrets, il che conta doppio con un canale TLS non autenticato (D4)
+- leggere liste di entry o log dall'interfaccia di wp-admin significa dipendere dal markup di un plugin, che cambia proprio quando lo si aggiorna: sarebbe una suite anti-regressione che si rompe da sola agli aggiornamenti
+- si può aggiungere in seguito senza riprogettare
+
+Se in futuro servisse leggere le entry, la strada è una **Application Password** in Basic Auth sulle REST API lette con `request.get()` — non un login da browser.
+
+### D8 — Il form è verificato fino alla risposta REST
+
+Il test compila i campi, spunta il consenso GDPR, supera il captcha, invia, e intercetta la risposta della chiamata a `metform/v1/entries`.
+
+Una risposta **2xx** prova in un colpo che: il widget Elementor si è idratato, i campi esistono ancora con quei `name`, la validazione è passata, il token captcha è stato verificato lato server, e l'handler REST ha accettato la submission. Sono esattamente i guasti prodotti da un aggiornamento di Elementor, Elementor Pro o MetForm.
+
+**Non si asserisce nulla sul testo mostrato in pagina** — né la conferma, che oggi non arriva mai per la posta non configurata, né il messaggio d'errore, che sparirebbe il giorno in cui un mailer venisse configurato, rendendo rossa la suite per aver funzionato. Il principio è: **asserire solo ciò che è invariante rispetto allo stato dell'SMTP.**
+
+Ogni invio porta un **run-ID univoco** nel corpo del messaggio, così le submission di test sono riconoscibili a mano in MetForm → Entries.
+
+### D9 — reCAPTCHA: chiavi di test Google, solo su dev
+
+Google pubblica una coppia di chiavi di test per reCAPTCHA v2 che superano sempre la verifica. Configurate nelle impostazioni MetForm **del solo dev**, il widget continua a caricarsi, montarsi, produrre un token e farlo verificare lato server — resta esercitata l'integrazione reale, e con essa la capacità di accorgersi che un update l'ha rotta. Solo il verdetto è forzato positivo.
+
+Questo è preferibile a disattivare il captcha, che renderebbe lo staging cieco al guasto più insidioso: un aggiornamento che rompe il captcha e rende il form **non inviabile per i clienti veri**.
+
+**Vincolo esplicito e non negoziabile:** quelle chiavi devono vivere solo su `dev.bsg.it`. In produzione farebbero accettare qualunque bot.
+
+**Prerequisito non ancora confermato** (vedi §12): se le chiavi di test non vengono configurate, il test del form si limita a verificare che form e widget captcha si renderizzino, senza inviare. Con la site key reale, un browser automatizzato da un IP di datacenter riceve con alta probabilità una sfida a immagini, che Playwright non può risolvere.
+
+### D10 — Rollback manuale via snapshot Lightsail
+
+Lo snapshot va creato **prima** dell'aggiornamento, a mano, perché con trigger manuale la CI entra in scena quando il danno è già fatto.
+
+**Dettaglio operativo critico:** su Lightsail il ripristino di uno snapshot **non sovrascrive l'istanza esistente**. Crea una *nuova* istanza dallo snapshot; l'IP statico va poi spostato sulla nuova e la vecchia dismessa. Chi non lo sa lo scopre nel momento peggiore.
+
+Per un singolo plugin andato male la via corta è reinstallare la versione precedente, non il ripristino completo, che è il rimedio per il core rotto.
+
+Questa procedura va scritta in `docs/ROLLBACK.md` come checklist.
+
+### D11 — Su dev non si configura alcun mailer
+
+Scelta dell'utente. Uno staging che sa scrivere ai clienti veri è un incidente in attesa, e non gli si restituisce la voce.
+
+**Conseguenza sulla copertura, da tenere presente:** combinata con D7, la suite **non verifica che la notifica email venga ancora generata**. Verifica che il form accetti ancora le submission. Per coprire anche la generazione della notifica servirebbe leggere il Registro delle email di WP Mail SMTP, che richiede l'accesso escluso da D7. È un'evoluzione possibile (§13), non una dimenticanza.
+
+### D12 — Il sistema resta indipendente dalla macchina
+
+**Vincolo richiesto esplicitamente, non proprietà emergente.** Il sistema di test non installa nulla sull'istanza Lightsail, non vi esegue codice, non vi accede via SSH e non entra in wp-admin. Interroga il sito dall'esterno via HTTPS, come un visitatore.
+
+Ne segue che il design è indipendente da **com'è fatta** quella macchina: taglia dell'istanza, immagine Bitnami o no, sistema operativo, versione di PHP, layout del filesystem, presenza di WP-CLI. Nessuna di queste cose compare nel progetto, ed è il motivo per cui D2 esclude il runner self-hosted.
+
+Punti di contatto ammessi, gli unici due:
+
+1. **API AWS Lightsail** per il firewall (D3) — agisce sul control plane AWS, non sui contenuti della macchina
+2. **Impostazioni dentro WordPress**, come le chiavi reCAPTCHA di test (D9) — configurazione applicativa, non modifica del server
+
+Il vincolo lega **l'automazione, non l'amministrazione manuale**: che l'utente installi a mano un certificato Let's Encrypt è manutenzione sua, non il sistema di test che entra nella macchina.
+
+Conseguenza sulla portabilità: spostando `dev.bsg.it` su un altro host, l'unica cosa da cambiare è la base URL; togliendo la restrizione IP, lo step del firewall sparisce del tutto.
+
+Conseguenza sulle evoluzioni: ogni voce della §13 va filtrata contro questo vincolo, e due di esse sono escluse per sempre.
+
+---
+
+## 4. Componenti
+
+Ogni file ha uno scopo unico ed è comprensibile senza leggere gli altri.
+
+```
+repo privato
+├── targets.json                    dati: URL, selettori attesi, errori accettati
+├── playwright.config.ts            baseURL, ignoreHTTPSErrors, retry, trace, workers
+├── tests/
+│   ├── smoke.spec.ts               test generico, cicla su targets.json
+│   ├── contact-form.spec.ts        il solo flusso scriptato
+│   └── fixtures/clean-page.ts      soppressione overlay, applicata a ogni test
+├── .github/
+│   ├── actions/lightsail-firewall/ apre e ripristina, unico punto che parla con AWS
+│   └── workflows/
+│       ├── post-update.yml         orchestrazione, nessuna logica di test
+│       └── firewall-reconcile.yml  rete di sicurezza giornaliera
+└── docs/ROLLBACK.md                procedura manuale pre-aggiornamento
+```
+
+`targets.json` è **dati, non codice**: si modifica senza toccare TypeScript. L'azione del firewall è isolata perché è l'unico pezzo che parla con AWS e va collaudata una volta sola.
+
+---
+
+## 5. `targets.json` — struttura
+
+```json
+{
+  "baseUrl": "https://dev.bsg.it",
+  "acceptedConsoleErrors": [
+    {
+      "match": "reCAPTCHA has already been rendered in this element",
+      "reason": "MetForm 4.3.0 chiama renderReCaptcha due volte; widget comunque funzionante. Verificato 08/09/2026."
+    }
+  ],
+  "pages": [
+    {
+      "path": "/",
+      "expect": ["header", "nav", "main", "footer"],
+      "criticalImages": 1
+    }
+  ]
+}
+```
+
+Semantica dei campi: `expect` è la lista di selettori CSS che devono esistere nella pagina; `criticalImages` è il **numero minimo** di immagini che devono risultare effettivamente decodificate (`naturalWidth > 0`), non un indice.
+
+Pagine candidate, dai link interni della homepage: `/`, `/about-us/`, `/services/`, `/it-consulting/`, `/cyber-security/`, `/managedservices/`, `/customservices/`, `/it-training/`, `/software-development-custom-solution/`, `/sostenibilita/`, `/partner/`, `/carriere/`, `/bsg-hub/`, `/blog/`, `/contact-us/`, `/whistleblower/`.
+
+`/cookie` e `/privacy-policy` sono linkati senza slash finale e generano un 301: le asserzioni devono tenerne conto.
+
+---
+
+## 6. Le asserzioni
+
+### Livello 1 — su ogni pagina di `targets.json`
+
+| Controllo | Guasto intercettato |
+|---|---|
+| Status 200, body privo di testo di errore fatale WordPress | White screen of death, fatal PHP |
+| Nessun errore console nuovo, di primo dominio | Conflitto JS fra plugin |
+| Nessuna richiesta di rete fallita | CSS, JS o immagini in 404 |
+| Selettori di `expect` presenti | Sezione svanita |
+| CSS realmente applicato (computed style) | Foglio caricato ma non attivo |
+| Nessun overflow orizzontale | Layout esploso |
+| Immagini critiche con `naturalWidth > 0` | Media library o CDN rotta |
+| `<title>` non vuoto | Regressione SEO grossolana |
+
+### Livello 2 — `/contact-us/`
+
+1. Il form è idratato e i campi con i `name` di §2.2 esistono
+2. Il widget reCAPTCHA è renderizzato (iframe `api2/anchor` presente)
+3. Compilazione, spunta del consenso GDPR, superamento captcha, invio
+4. La risposta di `metform/v1/entries` è **2xx**
+5. Nessuna asserzione sul testo in pagina, né sull'esito della consegna
+
+I punti 3 e 4 valgono **solo se** le chiavi reCAPTCHA di test vengono configurate su dev (D9, questione aperta §12.5). In caso contrario il Livello 2 si ferma ai punti 1 e 2: form idratato e widget captcha renderizzato, senza invio.
+
+---
+
+## 7. La fixture di soppressione overlay
+
+Tre sorgenti di sovrapposizione intercettano i click e sono la causa più probabile di instabilità dei test su questo sito — più del captcha.
+
+| Overlay | Trattamento |
+|---|---|
+| `cookie-notice` | Impostare il cookie di consenso prima del caricamento, oppure cliccare `#cn-accept-cookie`. Il nome esatto del cookie va confermato al primo run |
+| Hustle (`wordpress-popup`) | Nascondere i moduli `[class*="hustle-"]`, o chiudere con `.hustle-button-close` |
+| `ai-chat-widget` | Nascondere `#ai-chat-widget-root` |
+
+Scritta una volta come fixture Playwright, si applica a tutta la suite.
+
+---
+
+## 8. Sicurezza
+
+- **OIDC, non chiavi statiche.** In GitHub non vive nessuna credenziale AWS permanente
+- **Policy IAM ristretta** a `GetInstancePortStates`, `OpenInstancePublicPorts` e `CloseInstancePublicPorts` sulla singola istanza. `PutInstancePublicPorts` **non concessa**, per rendere impossibile la cancellazione dell'allowlist
+- **Finestra di apertura minima:** solo la 443, solo l'IP del runner, solo per la durata del run
+- **Chiusura in `if: always()`**, perché un test in timeout non lasci la porta aperta
+- **Workflow di riconciliazione giornaliero** che riporta il firewall alla lista committata: se un runner viene ucciso in modo brutale, `always()` può non eseguire
+- **Repo privato**
+- **Chiavi reCAPTCHA di test solo su dev** (D9)
+- **Nessuna credenziale WordPress** in nessun secret (D7)
+- **Rate limiting Wordfence:** `workers: 1`, User-Agent riconoscibile, quel UA in allowlist su Wordfence. Una raffica di pagine più un invio da un solo IP può altrimenti far bloccare il runner
+- **`noindex` su dev.bsg.it** da verificare, per non finire indicizzato
+- **Dati personali:** la presenza di All-in-One WP Migration indica che dev è probabilmente un clone della produzione, quindi contiene dati personali reali. È una questione GDPR oltre che tecnica, da confermare e valutare separatamente da questo progetto
+- **wp-login in chiaro:** finché il certificato resta self-signed e HTTP resta aperto, wp-admin è raggiungibile su canale non cifrato. Il Let's Encrypt di §12 lo risolve
+
+---
+
+## 9. Costi
+
+- **GitHub Actions:** un run di smoke consuma 2-3 minuti su `ubuntu-latest` (moltiplicatore 1x). Il piano Free include 2.000 minuti/mese su repo privati — da verificare sul piano in uso. Anche venti aggiornamenti al mese restano largamente nel gratuito, **a condizione di cachare i browser Playwright**: senza cache il download se ne mangia circa metà
+- **Lightsail:** nessun costo aggiuntivo. Gli snapshot sono fatturati a circa 0,05 $/GB-mese, quindi conservarne uno da 40 GB è nell'ordine dei 2 $/mese. Non conservarne dieci
+- **AWS API:** le chiamate Lightsail usate sono gratuite
+
+---
+
+## 10. Manutenzione
+
+Il sistema è nell'ordine delle 200 righe. L'unico file toccato con regolarità è `targets.json`.
+
+Il rischio di manutenzione non è tecnico: è che un test instabile eroda la fiducia e il report smetta di essere aperto. Tutte le scelte di questo design — poche asserzioni, deterministiche, nessuna baseline a pixel, errori noti dichiarati con la loro ragione — servono a quello.
+
+Playwright pinnato a versione esatta; Dependabot sulle versioni delle action.
+
+---
+
+## 11. Limiti di copertura, dichiarati
+
+La suite **non** verifica:
+
+- che la notifica email venga generata (conseguenza di D11 + D7)
+- che l'entry sia persistita a database (conseguenza di D7)
+- che la consegna della posta funzioni (conseguenza di D11)
+- regressioni visive fini: un layout che cambia restando strutturalmente valido passa (D5)
+- problemi TLS reali (conseguenza di D4)
+- i form di `/carriere/` (wp-job-openings) e `/whistleblower/`, che restano fuori dalla v1
+- performance, accessibilità, SEO oltre la presenza del `<title>`
+
+---
+
+## 12. Questioni aperte
+
+Bloccanti per l'implementazione:
+
+1. **Nome esatto dell'istanza Lightsail e regione** — servono per la policy IAM e le chiamate API
+2. **CIDR attualmente consentiti** sulle porte 80 e 443 nel firewall Lightsail — da committare come lista di riferimento
+3. **Chi crea il ruolo IAM** su AWS: serve un'utenza con permessi IAM, non solo Lightsail
+4. **Repo GitHub**: organizzazione e nome, da creare o esistente
+5. **Chiavi reCAPTCHA di test su dev**: si configurano o no? Decide se il test del form invia davvero o si limita al rendering (D9)
+6. **Lista definitiva degli URL** per `targets.json`, a partire dai candidati di §5
+
+Raccomandato, non bloccante:
+
+7. **Certificato Let's Encrypt su `dev.bsg.it`**. La porta 80 risponde, quindi la challenge HTTP-01 passa subito. Risolve in un colpo il certificato, il wp-login in chiaro, e permette di rimuovere `ignoreHTTPSErrors` rendendo la suite sensibile ai problemi TLS veri
+8. **Includere i form di `/carriere/` e `/whistleblower/`**? Il secondo è rilevante anche in senso normativo
+9. **Notifiche su Teams**: GitHub invia già un'email sui workflow falliti. Un canale in più ha senso solo se si scopre di ignorare quell'email
+
+---
+
+## 13. Evoluzioni previste, fuori dalla v1
+
+Tutte aggiungibili senza riprogettare, ma **filtrate contro il vincolo di indipendenza D12**.
+
+### Compatibili con D12
+
+**Trigger automatico senza codice sul server.** Un job `schedule` notturno può rilevare gli aggiornamenti **leggendo l'HTML pubblico**, senza alcun accesso alla macchina: WordPress ed Elementor espongono la versione nei meta `generator`, e i plugin la espongono nei parametri `?ver=` degli asset. Sono già osservabili dall'esterno la versione del core, di Elementor, di MetForm e di AIOSEO. Il job confronta le versioni lette con un manifest committato nel repo, esegue la suite se qualcosa è cambiato, e aggiorna il manifest. Questa è la strada corretta per automatizzare il trigger, e sostituisce l'idea dell'hook `upgrader_process_complete`.
+
+**Verifica della persistenza delle entry.** Una **Application Password** di WordPress usata in Basic Auth sulle REST API, letta con `request.get()` senza aprire il browser. È configurazione applicativa, non modifica del server, quindi rispetta D12. Costo: reintroduce una credenziale nei secrets, che ha senso solo dopo aver messo un certificato valido (§12.7).
+
+**Sink di posta esterno.** Puntare WP Mail SMTP a una casella-trappola esterna è un'impostazione dentro WordPress: rispetta D12 e chiuderebbe l'anello della consegna. È la sola strada compatibile per ottenere copertura sulle email.
+
+**Rimozione di `ignoreHTTPSErrors`** dopo l'installazione manuale del certificato.
+
+**Visual regression**, solo se un guasto reale sfuggito alle invarianti strutturali ne dimostrerà la necessità.
+
+### Escluse da D12
+
+**Hook `upgrader_process_complete` che chiama `repository_dispatch`.** Richiede un mu-plugin o uno snippet sul server, più un token GitHub ospitato lì. Sostituita dal rilevamento versioni via HTML pubblico descritto sopra.
+
+**Mailpit sull'istanza.** Richiede l'installazione di un binario e di un servizio sulla macchina. Se servirà copertura sulla posta, si usa il sink esterno.
