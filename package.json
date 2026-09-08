@@ -1,0 +1,17 @@
+{
+  "name": "bsg-dev-post-update-tests",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "engines": { "node": ">=20" },
+  "scripts": {
+    "test:unit": "playwright test --project=unit --pass-with-no-tests",
+    "test:site": "playwright test --project=site",
+    "test": "npm run test:unit && npm run test:site"
+  },
+  "devDependencies": {
+    "@playwright/test": "1.63.0",
+    "@types/node": "^24.0.0",
+    "typescript": "^5.6.0"
+  }
+}
