@@ -1,3 +1,16 @@
+/**
+ * Test del guardiano di targets.json. Nessun browser, nessuna rete: girano in
+ * un secondo e mezzo e funzionano anche a sito spento.
+ *
+ * Quasi ogni test qui corrisponde a un errore che qualcuno potrebbe fare
+ * modificando targets.json fra sei mesi: scriverci un indirizzo http, elencare
+ * due volte la stessa pagina, o — il caso che conta di più — dichiarare
+ * un'eccezione senza spiegarne il motivo.
+ *
+ * L'ultimo test è diverso dagli altri: non prova una regola, controlla che il
+ * targets.json REALE del repository sia valido. È una rete di sicurezza contro
+ * il refuso.
+ */
 import { test, expect } from '@playwright/test';
 import { validateTargets, loadTargets } from '../lib/targets';
 

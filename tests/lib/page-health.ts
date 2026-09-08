@@ -1,3 +1,22 @@
+/**
+ * LE INVARIANTI STRUTTURALI: i controlli che dicono se una pagina è sana.
+ *
+ * Sostituiscono il confronto per immagini (visual regression), che sembra la
+ * soluzione ovvia ma è la ragione per cui progetti come questo muoiono: banner
+ * cookie, caroselli, immagini caricate in ritardo e font fanno cambiare i pixel
+ * a ogni esecuzione, quindi si accumulano fallimenti falsi e si smette di
+ * guardare i risultati.
+ *
+ * Qui invece si verificano proprietà che restano vere qualunque sia il design:
+ * il CSS è stato caricato, le immagini si sono decodificate, la pagina non
+ * sfonda la finestra, gli elementi di struttura esistono, il titolo non è vuoto,
+ * e non c'è la schermata di errore fatale di WordPress.
+ *
+ * Nota su come sono scritte: ogni funzione NON lancia un'eccezione, restituisce
+ * una lista di problemi (`Finding`). Così un test che fallisce ti mostra tutti i
+ * problemi di quella pagina in una volta, invece di fermarsi al primo e
+ * costringerti a scoprirli uno per esecuzione.
+ */
 import type { Page } from '@playwright/test';
 import type { PageTarget } from './targets';
 

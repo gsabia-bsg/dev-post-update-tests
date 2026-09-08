@@ -1,3 +1,20 @@
+/**
+ * Test delle invarianti strutturali. Qui si collauda lo strumento, non il sito.
+ *
+ * Il punto interessante è COME: invece di cercare una pagina reale che sia
+ * rotta nel modo giusto, ogni controllo viene messo alla prova su una pagina
+ * costruita al volo in memoria con `setContent()` — un div largo 5000 pixel per
+ * l'overflow, un'immagine con dati corrotti per le immagini non decodificate,
+ * un titolo vuoto, e così via.
+ *
+ * Il vantaggio è che questi test sono deterministici e non toccano dev.bsg.it:
+ * verificano che i controlli sappiano dire NO quando c'è un problema, cosa che
+ * un test su una pagina sana non dimostra mai. Un controllo che non fallisce mai
+ * è indistinguibile da un controllo che non funziona.
+ *
+ * Aprono comunque un browser (stanno nel gruppo `site`), perché servono un DOM
+ * e un motore di layout veri.
+ */
 import { test, expect } from '@playwright/test';
 import {
   checkNoFatalError,

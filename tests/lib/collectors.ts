@@ -1,3 +1,15 @@
+/**
+ * GLI ASCOLTATORI: raccolgono ciò che accade DURANTE il caricamento.
+ *
+ * La differenza fra questo file e `page-health.ts` è il momento. Le invarianti
+ * si controllano DOPO, interrogando la pagina già caricata. Ma un errore
+ * JavaScript o un'immagine in 404 sono eventi che accadono MENTRE la pagina si
+ * carica: se non c'è nessuno in ascolto in quell'istante, non ne resta traccia.
+ *
+ * Per questo `attachCollectors` va chiamata prima del `goto`, e restituisce due
+ * liste che si riempiono da sole man mano che gli eventi arrivano. Il test le
+ * legge quando il caricamento è finito.
+ */
 import type { Page } from '@playwright/test';
 import type { ConsoleRecord } from './console-filter';
 import { isFirstParty } from './console-filter';
