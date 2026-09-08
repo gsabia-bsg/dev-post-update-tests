@@ -1,15 +1,8 @@
 /**
- * Test della logica di firewall. Girano con il runner integrato di Node
- * (`npm run test:scripts`), non con Playwright, perché il codice sotto esame è
- * JavaScript puro e non ha bisogno di un browser.
- *
- * Le due prove che contano davvero sono le ultime: che il ripristino restituisca
- * esattamente l'insieme originale, e che il calcolo non modifichi lo stato che
- * ha ricevuto. Sono le due proprietà che, se violate, ti chiudono fuori dal
- * sito.
- *
- * Gli indirizzi usati qui (203.0.113.x, 198.51.100.x) non sono casuali: sono
- * blocchi riservati dalla documentazione, quindi non appartengono a nessuno.
+ * Girano con `npm run test:scripts`. Le prove che contano sono le ultime due:
+ * il ripristino restituisce l'insieme originale, e il calcolo non muta lo stato
+ * ricevuto. Sono le proprietà che, se violate, ti chiudono fuori dal sito.
+ * Gli IP usati sono blocchi riservati alla documentazione.
  */
 import { test } from 'node:test';
 import assert from 'node:assert/strict';

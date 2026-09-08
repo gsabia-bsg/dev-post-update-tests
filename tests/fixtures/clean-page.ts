@@ -1,29 +1,15 @@
 /**
- * LA PAGINA PULITA: la preparazione che ogni test riceve gratis.
- *
- * Su dev.bsg.it ci sono tre cose che si sovrappongono al contenuto: il banner
- * cookie, un popup di Hustle e il widget di chat. Per un visitatore sono normali;
- * per un test automatico sono il problema numero uno — intercettano i click,
- * coprono i pulsanti, e fanno fallire i test per motivi che non hanno niente a
- * che vedere con gli aggiornamenti. Su un sito così, sono una causa di
- * instabilità più frequente del reCAPTCHA.
- *
- * Questo file definisce una "fixture", cioè un pezzo di preparazione che
- * Playwright esegue automaticamente prima di ogni test che la richiede. I test
- * chiedono `cleanPage` invece di `page` e ottengono una pagina in cui i tre
- * overlay sono già neutralizzati.
- *
- * Importante: la neutralizzazione avviene PRIMA che la pagina si carichi, non
- * dopo. Altrimenti il banner farebbe in tempo a comparire e a intercettare il
- * primo click.
+ * Preparazione automatica prima di ogni test del sito: spegne banner cookie,
+ * popup Hustle e chat widget, che intercettano i click e sono la causa più
+ * frequente di test instabili. Agisce prima del caricamento, non dopo, o il
+ * banner farebbe in tempo a comparire.
  *
  * I test del sito importano `test` ed `expect` da qui, non da `@playwright/test`.
  */
 import { test as base, type Page } from '@playwright/test';
 
-// display:none e non visibility:hidden di proposito: un popup che resta nel
-// flusso può causare overflow orizzontale e far fallire checkNoHorizontalOverflow
-// per un motivo che non è una regressione.
+// display:none e non visibility:hidden: un popup che resta nel flusso può
+// causare overflow orizzontale e far fallire il controllo per niente.
 const CSS_SOPPRESSIONE =
   [
     '#cookie-notice',

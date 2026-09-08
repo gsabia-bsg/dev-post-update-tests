@@ -1,21 +1,8 @@
 /**
- * LETTORE E GUARDIANO DI targets.json.
- *
- * `targets.json` è il file che decidi tu: elenca quali pagine controllare, quali
- * elementi devono esistere su ognuna, e quali errori JavaScript sono già noti e
- * accettati. È dati, non codice: per aggiungere una pagina non serve toccare
- * TypeScript.
- *
- * Questo modulo lo legge e lo VALIDA. La validazione non è burocrazia: ogni
- * regola qui dentro impedisce un errore che renderebbe la suite inaffidabile
- * senza che nessuno se ne accorga. Per esempio, rifiutare un `baseUrl` che
- * inizia con http:// evita di collaudare una versione del sito con i font rotti
- * dalla CORS, che nessun visitatore vede davvero.
- *
- * La regola più importante: chi dichiara un'eccezione deve dichiararne la
- * ragione. Un errore accettato senza `reason`, o una deroga alla soglia di
- * overflow senza `notes`, fanno fallire il caricamento. Serve a impedire che il
- * file diventi col tempo un tappeto sotto cui nascondere le regressioni.
+ * Legge e valida `targets.json`, il file che elenca le pagine da controllare.
+ * Rifiuta un baseUrl in http, i path duplicati, e le eccezioni senza
+ * motivazione — così il file non diventa un tappeto sotto cui nascondere le
+ * regressioni.
  */
 import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';

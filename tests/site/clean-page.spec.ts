@@ -1,15 +1,6 @@
 /**
- * Verifica che la fixture di pulizia funzioni davvero contro il sito reale.
- *
- * È un test sullo strumento, non sul sito, ma deve girare su una pagina vera:
- * il banner cookie, il popup e il chat widget esistono solo là. Se un giorno un
- * aggiornamento cambia il modo in cui uno dei tre si presenta, questo test
- * fallisce e ti avvisa che la fixture va aggiornata — prima che l'intera suite
- * inizi a fallire per motivi misteriosi.
- *
- * Il secondo test è il più utile dei due: verifica che il pulsante di invio del
- * form sia effettivamente cliccabile. Se un overlay lo coprisse, Playwright
- * andrebbe in timeout, ed è esattamente il guasto che la fixture previene.
+ * Verifica che la fixture funzioni sul sito vero. Il secondo test è il più
+ * utile: se un overlay coprisse il pulsante di invio, andrebbe in timeout.
  */
 import { test, expect } from '../fixtures/clean-page';
 

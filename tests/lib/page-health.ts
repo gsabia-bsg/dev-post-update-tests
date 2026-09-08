@@ -1,21 +1,12 @@
 /**
- * LE INVARIANTI STRUTTURALI: i controlli che dicono se una pagina è sana.
+ * I controlli che dicono se una pagina è sana, al posto del confronto per
+ * immagini (instabile per caroselli, banner e font). Verificano proprietà vere
+ * qualunque sia il design: CSS applicato, immagini decodificate, nessun
+ * overflow, elementi di struttura presenti, titolo non vuoto, nessun errore
+ * fatale di WordPress.
  *
- * Sostituiscono il confronto per immagini (visual regression), che sembra la
- * soluzione ovvia ma è la ragione per cui progetti come questo muoiono: banner
- * cookie, caroselli, immagini caricate in ritardo e font fanno cambiare i pixel
- * a ogni esecuzione, quindi si accumulano fallimenti falsi e si smette di
- * guardare i risultati.
- *
- * Qui invece si verificano proprietà che restano vere qualunque sia il design:
- * il CSS è stato caricato, le immagini si sono decodificate, la pagina non
- * sfonda la finestra, gli elementi di struttura esistono, il titolo non è vuoto,
- * e non c'è la schermata di errore fatale di WordPress.
- *
- * Nota su come sono scritte: ogni funzione NON lancia un'eccezione, restituisce
- * una lista di problemi (`Finding`). Così un test che fallisce ti mostra tutti i
- * problemi di quella pagina in una volta, invece di fermarsi al primo e
- * costringerti a scoprirli uno per esecuzione.
+ * Ogni funzione restituisce una lista di problemi invece di lanciare: così un
+ * test mostra tutti i guai della pagina in un colpo, non solo il primo.
  */
 import type { Page } from '@playwright/test';
 import type { PageTarget } from './targets';
@@ -49,12 +40,8 @@ export async function checkStylesheetsLoaded(page: Page): Promise<Finding[]> {
   return conRegole ? [] : [{ kind: 'no-stylesheets', detail: 'nessun foglio di stile con regole' }];
 }
 
-// L'invariante mira al layout catastroficamente rotto (spec D5), non allo
-// sforamento di pochi pixel. Barra di scorrimento, arrotondamenti subpixel e
-// le animazioni del carosello Swiper in homepage producono da soli uno
-// scostamento di qualche pixel: misurati 1285 contro 1280 l'08/09/2026, e 1277
-// in una misura successiva sulla stessa pagina. Una soglia stretta darebbe
-// rosso permanente senza segnalare alcuna regressione.
+// Mira al layout catastroficamente rotto, non a pochi pixel: il carosello in
+// homepage oscilla di suo (misurati 1285 e 1277 su viewport 1280).
 const TOLLERANZA_OVERFLOW_PX = 32;
 
 export async function checkNoHorizontalOverflow(

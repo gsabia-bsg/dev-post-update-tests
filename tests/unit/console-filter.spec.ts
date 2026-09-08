@@ -1,11 +1,7 @@
 /**
- * Test del filtro degli errori console. Anche questi senza browser né rete.
- *
- * L'ultimo test copre un'incertezza vera e non risolta: non sappiamo se
- * Chromium attribuisca l'errore del reCAPTCHA a gstatic.com (dove nasce lo
- * stack) o a dev.bsg.it (dove sta il codice MetForm che lo provoca). La voce in
- * targets.json e il filtro sul dominio lo neutralizzano in entrambi i casi, e
- * questo test lo mette per iscritto.
+ * Test del filtro. L'ultimo copre un'incertezza vera: non sappiamo se Chromium
+ * attribuisca l'errore del reCAPTCHA a gstatic o a dev.bsg.it — il filtro lo
+ * neutralizza in entrambi i casi.
  */
 import { test, expect } from '@playwright/test';
 import { isFirstParty, unexpectedConsoleErrors } from '../lib/console-filter';
