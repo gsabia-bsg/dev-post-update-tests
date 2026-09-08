@@ -1,0 +1,105 @@
+# Si lancia a mano dopo aver aggiornato WordPress, un plugin o il tema su dev.
+# Non parte da solo: non c'è nessuna pianificazione.
+name: Test post-aggiornamento
+
+on:
+  workflow_dispatch:
+    inputs:
+      note:
+        description: "Cosa hai aggiornato (finisce nel titolo del run)"
+        required: true
+        type: string
+
+# Così fra sei mesi, guardando lo storico, sai a cosa si riferiva ogni run.
+run-name: "Post-update — ${{ inputs.note }}"
+
+permissions:
+  # Serve per ottenere il token OIDC con cui assumere il ruolo AWS.
+  # Nessuna chiave permanente vive nei secret.
+  id-token: write
+  contents: read
+
+# Due run che manipolano il firewall insieme si sovrascriverebbero a vicenda.
+# cancel-in-progress resta false di proposito: cancellare un run a metà
+# salterebbe il ripristino della porta.
+concurrency:
+  group: dev-bsg-firewall
+  cancel-in-progress: false
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+
+    env:
+      LIGHTSAIL_INSTANCE_NAME: ${{ vars.LIGHTSAIL_INSTANCE_NAME }}
+      AWS_REGION: ${{ vars.AWS_REGION }}
+      STATE_FILE: ${{ github.workspace }}/firewall-state.json
+      RUN_ID: ${{ github.run_id }}-${{ github.run_attempt }}
+      RECAPTCHA_TEST_KEYS: ${{ vars.RECAPTCHA_TEST_KEYS }}
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+
+      - run: npm ci
+
+      # Senza cache il download dei browser si mangia metà del tempo del run.
+      - name: Cache dei browser Playwright
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/ms-playwright
+          key: playwright-${{ runner.os }}-${{ hashFiles('package-lock.json') }}
+
+      - name: Installa Chromium
+        run: npx playwright install --with-deps chromium
+
+      # Girano prima di toccare il firewall: non usano rete né browser, quindi
+      # se sono rotti è inutile aprire porte.
+      - name: Test unitari
+        run: npm run test:scripts && npm run test:unit
+
+      - name: Credenziali AWS temporanee via OIDC
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ secrets.AWS_ROLE_ARN }}
+          aws-region: ${{ vars.AWS_REGION }}
+
+      - name: Rileva l'IP pubblico del runner
+        id: ip
+        run: echo "value=$(curl -sS --max-time 10 https://checkip.amazonaws.com)" >> "$GITHUB_OUTPUT"
+
+      - name: Apri la 443 per questo runner
+        run: >
+          node scripts/firewall.mjs open
+          --instance "$LIGHTSAIL_INSTANCE_NAME"
+          --region "$AWS_REGION"
+          --ip "${{ steps.ip.outputs.value }}"
+          --state-file "$STATE_FILE"
+
+      - name: Test sul sito
+        run: npm run test:site
+
+      # if: always() — un test che fallisce o va in timeout non deve lasciare
+      # la porta aperta. Sta dopo i test proprio per questo.
+      - name: Ripristina il firewall
+        if: always()
+        run: >
+          node scripts/firewall.mjs restore
+          --instance "$LIGHTSAIL_INSTANCE_NAME"
+          --region "$AWS_REGION"
+          --state-file "$STATE_FILE"
+
+      - name: Carica report e tracce
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: playwright-report-${{ github.run_id }}
+          path: |
+            playwright-report/
+            test-results/
+          retention-days: 14
