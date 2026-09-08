@@ -49,6 +49,28 @@ test('rifiuta un errore accettato senza motivazione, per non nascondere regressi
     .toThrow(/reason/i);
 });
 
+test('rifiuta una deroga alla soglia di overflow senza motivazione', () => {
+  expect(() => validateTargets({
+    ...valido,
+    pages: [{ path: '/', expect: [], criticalImages: 0, overflowTolerancePx: 200 }],
+  })).toThrow(/notes/i);
+});
+
+test('accetta una deroga alla soglia di overflow se motivata', () => {
+  const t = validateTargets({
+    ...valido,
+    pages: [{ path: '/', expect: [], criticalImages: 0, overflowTolerancePx: 200, notes: 'difetto noto' }],
+  });
+  expect(t.pages[0].overflowTolerancePx).toBe(200);
+});
+
+test('rifiuta una soglia di overflow non intera o negativa', () => {
+  expect(() => validateTargets({
+    ...valido,
+    pages: [{ path: '/', expect: [], criticalImages: 0, overflowTolerancePx: -5, notes: 'x' }],
+  })).toThrow(/overflowTolerancePx/);
+});
+
 test('il file targets.json del repo è valido e contiene la pagina contatti', () => {
   const t = loadTargets();
   expect(t.pages.map((p) => p.path)).toContain('/contact-us/');

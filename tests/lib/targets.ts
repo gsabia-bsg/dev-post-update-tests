@@ -3,7 +3,15 @@ import { fileURLToPath } from 'node:url';
 import { dirname, resolve } from 'node:path';
 
 export type AcceptedConsoleError = { match: string; reason: string };
-export type PageTarget = { path: string; expect: string[]; criticalImages: number };
+export type PageTarget = {
+  path: string;
+  expect: string[];
+  criticalImages: number;
+  /** Deroga alla soglia di overflow, per difetti preesistenti. Richiede `notes`. */
+  overflowTolerancePx?: number;
+  /** Motivazione di una deroga. Obbligatoria se c'è una deroga. */
+  notes?: string;
+};
 export type Targets = {
   baseUrl: string;
   acceptedConsoleErrors: AcceptedConsoleError[];
@@ -59,7 +67,34 @@ export function validateTargets(raw: unknown): Targets {
     if (typeof criticalImages !== 'number' || !Number.isInteger(criticalImages) || criticalImages < 0) {
       throw new Error(`pages[${i}].criticalImages deve essere un intero non negativo`);
     }
-    return { path, expect: expectRaw as string[], criticalImages };
+    const overflowRaw = p.overflowTolerancePx;
+    let overflowTolerancePx: number | undefined;
+    if (overflowRaw !== undefined) {
+      if (typeof overflowRaw !== 'number' || !Number.isInteger(overflowRaw) || overflowRaw <= 0) {
+        throw new Error(`pages[${i}].overflowTolerancePx deve essere un intero positivo`);
+      }
+      overflowTolerancePx = overflowRaw;
+    }
+
+    const notesRaw = p.notes;
+    if (notesRaw !== undefined && (typeof notesRaw !== 'string' || notesRaw.trim() === '')) {
+      throw new Error(`pages[${i}].notes, se presente, deve essere una stringa non vuota`);
+    }
+
+    // stessa disciplina degli errori console accettati: ogni deroga dichiara la sua ragione
+    if (overflowTolerancePx !== undefined && typeof notesRaw !== 'string') {
+      throw new Error(
+        `pages[${i}]: overflowTolerancePx richiede notes che ne spieghi la ragione`,
+      );
+    }
+
+    return {
+      path,
+      expect: expectRaw as string[],
+      criticalImages,
+      ...(overflowTolerancePx !== undefined ? { overflowTolerancePx } : {}),
+      ...(typeof notesRaw === 'string' ? { notes: notesRaw } : {}),
+    };
   });
 
   const seen = new Set<string>();

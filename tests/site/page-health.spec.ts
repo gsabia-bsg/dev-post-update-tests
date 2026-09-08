@@ -37,6 +37,14 @@ test('checkNoHorizontalOverflow segnala il layout che sfonda la viewport', async
   expect(await checkNoHorizontalOverflow(page)).toEqual([]);
 });
 
+test('checkNoHorizontalOverflow tollera lo sforamento di pochi pixel', async ({ page }) => {
+  // barra di scorrimento, arrotondamenti subpixel e animazioni del carosello
+  // producono da soli qualche pixel di scostamento: non è un layout rotto
+  await page.setViewportSize({ width: 800, height: 600 });
+  await page.setContent('<title>x</title><body style="margin:0"><div style="width:815px;height:10px"></div></body>');
+  expect(await checkNoHorizontalOverflow(page)).toEqual([]);
+});
+
 test('checkImagesDecoded conta solo le immagini realmente decodificate', async ({ page }) => {
   const pngValido =
     'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+ip1sAAAAASUVORK5CYII=';
