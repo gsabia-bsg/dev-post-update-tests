@@ -130,7 +130,7 @@ Il confronto a pixel è **escluso**: banner cookie, popup, caroselli, lazy-load 
 
 Al suo posto, **invarianti strutturali**: il CSS è realmente applicato (si legge una computed style, non solo l'HTTP 200 del foglio), le immagini critiche sono decodificate (`naturalWidth > 0`), non c'è overflow orizzontale, header, nav, main e footer esistono. Questo intercetta il guasto realistico — un foglio di stile in 404, un plugin che svuota una sezione — senza una sola baseline da mantenere.
 
-**Emendamento dell'08/09/2026.** L'esclusione totale del confronto visivo è stata riaperta dall'utente con una domanda legittima: così com'era, la suite non si accorgeva se un aggiornamento *spostava* qualcosa. Il confronto visivo rientra quindi in forma ristretta, vedi D14. Le invarianti strutturali restano il controllo principale su tutte le pagine; il confronto a immagini si applica a pochi elementi scelti.
+**L'esclusione è stata riaperta e poi riconfermata l'08/09/2026.** La domanda dell'utente era legittima — così com'è, la suite non si accorge se un aggiornamento *sposta* qualcosa — e il confronto visivo su pochi elementi è stato provato per davvero. Poi l'utente ha deciso di non tenerlo. Il resoconto del tentativo, con ciò che ha funzionato e ciò che no, è in D14: serve a non ripartire da zero se un giorno si riprova.
 
 ### D6 — Gli errori in console sono baselinati, non azzerati
 
@@ -218,15 +218,19 @@ Sitemap inclusi: `page-sitemap` (28 URL), `post-sitemap` (35), `awsm_job_opening
 
 `targets.json` conserva quindi: baseline degli errori accettati, `core`, `minPages`, i sitemap da leggere, i pattern di esclusione, le aspettative di default e le deroghe per singola pagina. Smette solo di contenere l'elenco positivo.
 
-### D14 — Confronto visivo su pochi elementi, non su pagine intere
+### D14 — Confronto visivo: provato e non adottato
 
-Riapre in parte D5. Il confronto a pixel su pagine intere resta escluso: su questo sito carosello, banner, lazy load e animazioni produrrebbero fallimenti falsi a raffica.
+**Decisione finale: non si fa.** Resoconto del tentativo, perché contiene fatti utili a chi un giorno riproverà.
 
-Si fotografano invece **pochi elementi stabili** — testata, piè di pagina, scheda del form — su due pagine. Quattro immagini di riferimento, non sedici pagine. La scelta degli elementi è ciò che rende la cosa praticabile: il carosello sta nel corpo della homepage, quindi restandone fuori il problema principale di instabilità non si presenta.
+L'idea era fotografare **pochi elementi stabili** — testata, piè di pagina, scheda del form — invece di pagine intere, per restare fuori dal carosello e dai contenuti che cambiano. Implementato come progetto Playwright separato, con animazioni congelate, attesa del caricamento dei font, viewport fissa e una piccola tolleranza per l'antialiasing.
 
-Misure di stabilità: animazioni congelate (`animations: 'disabled'`), attesa del caricamento dei font, viewport fissa, overlay già soppressi dalla fixture, e una piccola tolleranza sui pixel per l'antialiasing.
+**Cosa ha funzionato:** tre elementi su quattro hanno dato immagini identiche fra esecuzioni consecutive al primo colpo — piè di pagina della homepage, testata di `/services/`, scheda del form di `/contact-us/`. La determinatezza c'era.
 
-**Due vincoli accettati.** Le immagini di riferimento sono legate al sistema operativo che le genera, quindi il confronto vale **solo sulla piattaforma del runner**: gira in un progetto Playwright separato (`visual`), non in `npm test`, così l'esecuzione locale su Windows resta verde e veloce. E ogni modifica di design **voluta** richiede di riapprovare le immagini toccate e committarle.
+**Cosa no:** la testata della homepage. Non per una differenza di pixel, ma perché quell'elemento ha **altezza zero**: sulla homepage `.main-header` è un contenitore trasparente sovrapposto al carosello, con i figli posizionati in assoluto, quindi collassa. Playwright considera nascosto ciò che non ha un rettangolo. Andava fotografato il figlio interno (`.main-header__inner`, alto 70px), che è un lavoro di selezione da fare elemento per elemento.
+
+**Perché è stato abbandonato:** l'utente ha deciso di non proseguire. Il costo che restava era proprio quello: un lavoro di scelta dei selettori caso per caso, più la manutenzione delle immagini a ogni modifica di design voluta, più il vincolo che il confronto vale solo sulla piattaforma che ha generato i riferimenti.
+
+**Conseguenza sulla copertura:** resta quella dichiarata in §11 — la suite intercetta la rottura, non lo spostamento. Dopo un aggiornamento il controllo visivo del sito resta a occhio.
 
 ---
 
