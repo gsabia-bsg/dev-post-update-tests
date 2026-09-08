@@ -1259,7 +1259,7 @@ I test in `.mjs` girano con il runner di Node, non con Playwright, quindi vanno 
 
 ```json
   "scripts": {
-    "test:scripts": "node --test scripts/lib/",
+    "test:scripts": "node --test \"scripts/**/*.test.mjs\"",
     "test:unit": "playwright test --project=unit --pass-with-no-tests",
     "test:site": "playwright test --project=site",
     "test": "npm run test:scripts && npm run test:unit && npm run test:site"
