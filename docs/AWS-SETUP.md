@@ -77,9 +77,28 @@ IAM → Roles → **Create role** → **Web identity**:
 
 Allega la policy del passo 2. Nome suggerito: `dev-bsg-firewall-ci-role`.
 
-Poi apri la scheda **Trust relationships** e verifica che assomigli a questo —
-la condizione sul `sub` è ciò che impedisce ad altri repository di assumere il
-ruolo:
+Poi apri la scheda **Trust relationships** e **correggi la condizione sul `sub`**,
+perché quella generata dalla console non funziona.
+
+**Il tranello, verificato il 09/09/2026.** La console genera
+`repo:gsabia-bsg/dev-post-update-tests:*`, ma GitHub emette un subject con gli
+**identificativi numerici** di utente e repo attaccati con la `@`:
+
+```
+repo:gsabia-bsg@261906451/dev-post-update-tests@1361551299:ref:refs/heads/main
+```
+
+È il formato a identificatori immutabili: impedisce che qualcuno cancelli un repo
+e ne crei un altro con lo stesso nome per impersonarlo. Con la condizione
+generata dalla console il subject non combacia, e l'errore che si ottiene è
+`Not authorized to perform sts:AssumeRoleWithWebIdentity` — indistinguibile da
+un problema di permessi, e **senza nessun evento in CloudTrail** che aiuti a
+capirlo.
+
+Gli identificativi numerici si leggono dal claim `sub` del token: lo stampa lo
+step di diagnostica nel workflow, se serve rimetterlo.
+
+La trust policy corretta è questa:
 
 ```json
 {
@@ -96,7 +115,7 @@ ruolo:
           "token.actions.githubusercontent.com:aud": "sts.amazonaws.com"
         },
         "StringLike": {
-          "token.actions.githubusercontent.com:sub": "repo:gsabia-bsg/dev-post-update-tests:*"
+          "token.actions.githubusercontent.com:sub": "repo:gsabia-bsg@261906451/dev-post-update-tests@1361551299:*"
         }
       }
     }
