@@ -183,6 +183,8 @@ Scrivere il token direttamente nei campi non funziona: **0 su 5**. MetForm lo le
 
 **Conseguenze pratiche:** le chiavi di test su dev non servono più e vanno rimesse quelle reali, perché nel frattempo indeboliscono lo staging. La variabile `RECAPTCHA_TEST_KEYS` e `RUN_ID` sono state rimosse da workflow e documentazione: non le legge più nessuno.
 
+**Lo scambio è stato posto all'utente ed è stato deciso.** Esiste una strada per avere un test di invio deterministico: **togliere il reCAPTCHA dal form su dev**. Ma è uno scambio, non un guadagno: si perderebbe l'asserzione che il captcha si inizializzi, e un captcha bloccato rende il form inutilizzabile per *tutti* i visitatori mentre il sito sembra normale. Copertura sul captcha oppure sull'invio, non entrambe. **Il 09/09/2026 l'utente ha scelto di tenere il captcha**, perché è l'integrazione più fragile delle due — ha già il difetto di doppio rendering documentato in §2.4. Non riaprire la questione senza un motivo nuovo.
+
 ### D10 — Rollback manuale via snapshot Lightsail
 
 Lo snapshot va creato **prima** dell'aggiornamento, a mano, perché con trigger manuale la CI entra in scena quando il danno è già fatto.
