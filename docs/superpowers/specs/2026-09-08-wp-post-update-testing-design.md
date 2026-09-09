@@ -178,7 +178,18 @@ Lo snapshot va creato **prima** dell'aggiornamento, a mano, perché con trigger 
 
 Per un singolo plugin andato male la via corta è reinstallare la versione precedente, non il ripristino completo, che è il rimedio per il core rotto.
 
-Questa procedura va scritta in `docs/ROLLBACK.md` come checklist.
+**La procedura completa, se si arriva al ripristino da snapshot:**
+
+1. `aws lightsail create-instances-from-snapshot` — crea la nuova istanza
+2. attendi che sia `running`
+3. **sposta l'IP statico** dalla vecchia alla nuova: Lightsail → Networking → l'IP statico → Attach to instance
+4. verifica che `https://dev.bsg.it` risponda dalla nuova
+5. **riapplica a mano la restrizione IP nel firewall**: la nuova istanza nasce con le regole di default, quindi l'allowlist non c'è. Conviene fotografare le regole **prima** del ripristino, con `aws lightsail get-instance-port-states --instance-name VECCHIA` oppure con uno screenshot della console
+6. solo dopo aver verificato tutto, dismetti la vecchia istanza
+
+Il passo 5 è quello che si dimentica, e senza di esso la nuova istanza resta esposta a Internet o inaccessibile, a seconda dei default.
+
+*Nota del 09/09/2026:* questa procedura stava in `docs/ROLLBACK.md`, che l'utente ha chiesto di eliminare. È stata riportata qui perché il passo 5 non era documentato in nessun altro punto e senza di esso il ripristino si conclude male.
 
 ### D11 — Su dev non si configura alcun mailer
 
@@ -240,21 +251,32 @@ Ogni file ha uno scopo unico ed è comprensibile senza leggere gli altri.
 
 ```
 repo privato
-├── targets.json                    dati: URL, selettori attesi, errori accettati
-├── playwright.config.ts            baseURL, ignoreHTTPSErrors, retry, trace, workers
+├── targets.json                     dati: nucleo, soglia, default, deroghe, errori accettati
+├── playwright.config.ts             baseURL, ignoreHTTPSErrors, retry, trace, workers
 ├── tests/
-│   ├── smoke.spec.ts               test generico, cicla su targets.json
-│   ├── contact-form.spec.ts        il solo flusso scriptato
-│   └── fixtures/clean-page.ts      soppressione overlay, applicata a ogni test
-├── .github/
-│   ├── actions/lightsail-firewall/ apre e ripristina, unico punto che parla con AWS
-│   └── workflows/
-│       ├── post-update.yml         orchestrazione, nessuna logica di test
-│       └── firewall-reconcile.yml  rete di sicurezza giornaliera
-└── docs/ROLLBACK.md                procedura manuale pre-aggiornamento
+│   ├── lib/
+│   │   ├── targets.ts               legge e valida targets.json
+│   │   ├── sitemap.ts               elenco pagine dal sitemap, con soglia e nucleo
+│   │   ├── collectors.ts            ascolta errori e richieste durante il caricamento
+│   │   ├── console-filter.ts        decide quali errori contano
+│   │   └── page-health.ts           le invarianti strutturali
+│   ├── fixtures/clean-page.ts       soppressione overlay, applicata a ogni test
+│   ├── unit/                        test senza browser né rete
+│   └── site/
+│       ├── smoke.spec.ts            un test per pagina, elenco dal sitemap
+│       ├── contact-form.spec.ts     il solo flusso scriptato
+│       ├── page-health.spec.ts      collaudo delle invarianti su pagine finte
+│       └── clean-page.spec.ts       collaudo della fixture sul sito vero
+├── scripts/
+│   ├── firewall.mjs                 apre e ripristina la 443, unico punto che parla con AWS
+│   └── lib/cidr-plan.mjs            calcolo puro delle regole, coperto da test
+├── .github/workflows/post-update.yml   orchestrazione, nessuna logica di test
+└── docs/AWS-SETUP.md                procedura IAM, da eseguire una volta sola
 ```
 
-`targets.json` è **dati, non codice**: si modifica senza toccare TypeScript. L'azione del firewall è isolata perché è l'unico pezzo che parla con AWS e va collaudata una volta sola.
+Questo è lo stato realmente costruito al 09/09/2026, non il disegno iniziale: il workflow di riconciliazione non esiste (§8), la logica del firewall sta in `scripts/` e non in una composite action, e `docs/ROLLBACK.md` è stato eliminato su richiesta dell'utente (D10).
+
+`targets.json` è **dati, non codice**: si modifica senza toccare TypeScript. Lo script del firewall è l'unico pezzo che parla con AWS, e il calcolo delle regole è separato dalle chiamate proprio per poter essere collaudato senza conseguenze.
 
 ---
 

@@ -58,6 +58,8 @@ In più, `PageTarget` guadagna due campi opzionali non previsti: `overflowTolera
 
 **Playwright 1.63.0** invece di 1.55.0, e `--with-deps` solo in CI: su Windows quel flag non ha effetto.
 
+**`docs/ROLLBACK.md` è stato eliminato il 09/09/2026** su richiesta dell'utente. Il file creato dal Task 12 non esiste più; il testo del Task 12 resta qui sotto come cronaca. La procedura non è andata perduta: è stata trasferita nella spec D10, che ora la contiene passo per passo. Il trasferimento era necessario perché un passaggio — riapplicare a mano la restrizione IP sul firewall della nuova istanza, che nasce con le regole di default — non era documentato in nessun altro punto.
+
 **Il Task 11 non si realizza.** L'utente ha deciso l'08/09/2026 di rinunciare al workflow notturno di riconciliazione del firewall, giudicando il rischio residuo accettabile rispetto al costo di mantenere una lista di CIDR di riferimento. Il rischio è ora documentato in §8 della spec. Conseguenze applicate: `firewall-allowlist.json` è stato rimosso (era creato dallo Step 5 del Task 8 e non ha più consumatori), il passo 5 di `docs/ROLLBACK.md` è diventato una procedura manuale sulla console Lightsail, e la questione aperta §12.2 della spec è chiusa perché non più necessaria. Il testo del Task 11 resta qui sotto come documentazione di ciò che era stato progettato, non come lavoro da fare. Se un giorno lo si volesse, la variante da preferire è quella che si autocostruisce il riferimento leggendolo dal firewall al primo avvio, senza nulla da trascrivere a mano.
 
 ---
