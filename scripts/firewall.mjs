@@ -42,17 +42,21 @@ function leggiStato(instance, region) {
 }
 
 function scriviPorta(instance, region, portInfo) {
-  const spec = [
-    `fromPort=${portInfo.fromPort}`,
-    `toPort=${portInfo.toPort}`,
-    `protocol=${portInfo.protocol}`,
-    `cidrs=${portInfo.cidrs.join(',')}`,
-  ].join(',');
+  // JSON invece della sintassi abbreviata `chiave=valore`: con due liste da
+  // passare, cidrs e ipv6Cidrs, quella forma diventa ambigua da interpretare.
+  // E ipv6Cidrs va sempre incluso, altrimenti la scrittura azzera la lista IPv6
+  // della porta.
   aws([
     'lightsail', 'open-instance-public-ports',
     '--instance-name', instance,
     '--region', region,
-    '--port-info', spec,
+    '--port-info', JSON.stringify({
+      fromPort: portInfo.fromPort,
+      toPort: portInfo.toPort,
+      protocol: portInfo.protocol,
+      cidrs: portInfo.cidrs,
+      ipv6Cidrs: portInfo.ipv6Cidrs ?? [],
+    }),
     '--output', 'json',
   ]);
 }
@@ -104,7 +108,10 @@ if (comando === 'open') {
   writeFileSync(stateFile, JSON.stringify(originale, null, 2));
   const piano = planOpen(originale, ip, PORTA);
   scriviPorta(instance, region, piano);
-  console.log(`443 aperta a ${piano.cidrs.length} CIDR (aggiunto ${ip}); stato originale in ${stateFile}`);
+  console.log(
+    `443 aperta: ${piano.cidrs.length} CIDR IPv4 (aggiunto ${ip}) e ` +
+      `${piano.ipv6Cidrs.length} IPv6 conservati; stato originale in ${stateFile}`,
+  );
 } else if (comando === 'restore') {
   // Se il file di stato non c'è, l'apertura non è avvenuta: la porta non è mai
   // stata toccata e non c'è niente da ripristinare. Fallire qui aggiungerebbe
@@ -121,6 +128,9 @@ if (comando === 'open') {
     console.log('443 era chiusa in origine: richiusa');
   } else {
     scriviPorta(instance, region, piano);
-    console.log(`443 ripristinata ai ${piano.cidrs.length} CIDR originali: ${piano.cidrs.join(', ')}`);
+    console.log(
+      `443 ripristinata — IPv4: ${piano.cidrs.join(', ') || 'nessuno'} | ` +
+        `IPv6: ${piano.ipv6Cidrs.join(', ') || 'nessuno'}`,
+    );
   }
 }

@@ -112,7 +112,15 @@ L'API `PutInstancePublicPorts` **chiude tutte le porte non elencate nella richie
 
 Il ripristino si basa **esclusivamente** sullo stato letto al passo 1 e salvato per la durata del run: nessuna lista di riferimento è committata nel repo. Vedi il rischio accettato in §8.
 
-Nota da verificare al primo run: si assume che `OpenInstancePublicPorts` sovrascriva la lista CIDR della sola porta indicata, lasciando intatte le altre porte.
+Verificato al primo run in CI, il 09/09/2026: `OpenInstancePublicPorts` sovrascrive effettivamente la sola porta indicata, lasciando intatte le altre.
+
+**Ma il primo run ha rivelato un difetto del ripristino, ed è istruttivo.** Lightsail tiene IPv4 e IPv6 in **due campi separati** dello stato di una porta, `cidrs` e `ipv6Cidrs`. Il codice leggeva e riscriveva solo il primo — e riscrivere una porta indicando solo `cidrs` **azzera la lista IPv6 di quella porta**. Risultato: il run ha cancellato la regola `Any IPv6 address` dalla 443 di `dev.bsg.it`, e non poteva rimetterla perché non l'aveva mai letta. Il log lo diceva, per chi sapeva leggerlo: *"443 ripristinata ai 1 CIDR originali"*, quando le voci erano due.
+
+Il danno concreto è stato nullo — anzi ha chiuso per caso un buco reale, perché quella regola apriva le porte 80 e 443 a tutto Internet su IPv6. Ma **il sistema ha modificato qualcosa che aveva promesso di non toccare**, ed è esattamente la classe di errore che il pattern read-modify-restore esiste per prevenire.
+
+Corretto: entrambe le liste vengono lette, conservate e ripristinate, e la scrittura passa da JSON invece che dalla sintassi abbreviata dell'AWS CLI, che con due liste diventa ambigua. Quattro test coprono il caso.
+
+Lezione generalizzabile, valida per il prossimo che estenderà questo codice: **un'API che espone lo stato in più campi va riletta e riscritta in tutti i suoi campi.** Ripristinarne un sottoinsieme non è un ripristino parziale, è una modifica.
 
 ### D4 — I test girano su HTTPS con `ignoreHTTPSErrors`, mai su HTTP
 

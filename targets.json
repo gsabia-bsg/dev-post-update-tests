@@ -32,8 +32,8 @@
       "reason": "MetForm 4.3.0 chiama renderReCaptcha due volte (a idratazione e a window.onload). Verificato l'08/09/2026 che il widget dei contatti è comunque renderizzato e funzionante: il div vuoto è quello di Hustle, che monta il captcha all'apertura del popup. Rimuovere questa voce quando MetForm sistemerà l'idempotenza."
     },
     {
-      "match": "Framing 'https://www.google.com/' violates the following report-only Content Security Policy",
-      "reason": "Un iframe di google.com dichiara frame-ancestors 'self' in sola segnalazione, e Chromium lo registra come errore. Visto su /carriere/ l'08/09/2026, verosimilmente legato a wp-job-openings. Non è un guasto, non dipende dal sito e non è riparabile da noi; compare in modo intermittente a seconda di quando l'iframe viene montato. Arriva senza URL di origine, quindi il filtro sul dominio non lo scarta. Il match è volutamente stretto su google.com per non nascondere eventuali violazioni CSP nostre."
+      "match": "violates the following report-only Content Security Policy directive: \"frame-ancestors",
+      "reason": "Un iframe di Google dichiara frame-ancestors 'self' in sola segnalazione, e Chromium lo registra come errore. Visto su /carriere/ l'08/09/2026 e su /managedservices/ il 09/09/2026. Non è un guasto, non dipende dal sito e non è riparabile da noi; compare in modo intermittente a seconda di quando l'iframe viene montato, e arriva senza URL di origine quindi il filtro sul dominio non lo scarta. Il match non nomina più il dominio: la prima versione citava www.google.com e non ha intercettato la variante senza www, facendo fallire un run in CI. Resta comunque stretto perché una violazione frame-ancestors in sola segnalazione è per definizione dichiarata dal sito INCORNICIATO, cioè da una terza parte: dev.bsg.it non invia CSP in sola segnalazione, quindi questa voce non può nascondere un difetto nostro."
     }
   ],
 

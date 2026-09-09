@@ -26,19 +26,31 @@ export function findPortState(portStates, port, protocol = PROTOCOLLO_DEFAULT) {
 /**
  * Calcola la regola da scrivere per aprire la porta al runner, preservando i
  * CIDR gia consentiti. Non muta lo stato ricevuto.
+ *
+ * Lightsail tiene IPv4 e IPv6 in due campi separati, `cidrs` e `ipv6Cidrs`.
+ * Vanno riportati ENTRAMBI: riscrivere la porta indicando solo `cidrs` azzera
+ * la lista IPv6 di quella porta. E' il bug che il primo run in CI ha causato il
+ * 09/09/2026, cancellando la regola IPv6 dalla 443 e non potendola ripristinare
+ * perche' non era mai stata letta.
  */
 export function planOpen(portStates, runnerIp, port = PORTA_DEFAULT) {
   const stato = findPortState(portStates, port);
   const esistenti = stato ? [...stato.cidrs] : [];
   const nuovo = normalizeCidr(runnerIp);
   const cidrs = esistenti.includes(nuovo) ? esistenti : [...esistenti, nuovo];
-  return { fromPort: port, toPort: port, protocol: PROTOCOLLO_DEFAULT, cidrs };
+  return {
+    fromPort: port,
+    toPort: port,
+    protocol: PROTOCOLLO_DEFAULT,
+    cidrs,
+    ipv6Cidrs: stato ? [...(stato.ipv6Cidrs ?? [])] : [],
+  };
 }
 
 /**
- * Calcola la regola da riscrivere per tornare esattamente allo stato iniziale.
- * Restituisce null se la porta era chiusa: in quel caso il chiamante deve
- * richiuderla con close-instance-public-ports, non riscriverla.
+ * Calcola la regola da riscrivere per tornare esattamente allo stato iniziale,
+ * IPv6 compreso. Restituisce null se la porta era chiusa: in quel caso il
+ * chiamante deve richiuderla con close-instance-public-ports, non riscriverla.
  */
 export function planRestore(portStates, port = PORTA_DEFAULT) {
   const stato = findPortState(portStates, port);
@@ -48,5 +60,6 @@ export function planRestore(portStates, port = PORTA_DEFAULT) {
     toPort: port,
     protocol: PROTOCOLLO_DEFAULT,
     cidrs: [...stato.cidrs],
+    ipv6Cidrs: [...(stato.ipv6Cidrs ?? [])],
   };
 }
