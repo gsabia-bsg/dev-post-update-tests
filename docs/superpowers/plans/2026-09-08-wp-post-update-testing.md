@@ -58,9 +58,7 @@ In più, `PageTarget` guadagna due campi opzionali non previsti: `overflowTolera
 
 **Playwright 1.63.0** invece di 1.55.0, e `--with-deps` solo in CI: su Windows quel flag non ha effetto.
 
-**Il documento di procedura prodotto dal Task 12 è stato eliminato il 09/09/2026** su richiesta dell'utente, insieme a tutta la documentazione di quel tema. Il testo del compito è stato rimosso da questa cronaca per coerenza.
-
-**Il Task 11 non si realizza.** L'utente ha deciso l'08/09/2026 di rinunciare al workflow notturno di riconciliazione del firewall, giudicando il rischio residuo accettabile rispetto al costo di mantenere una lista di CIDR di riferimento. Il rischio è ora documentato in §8 della spec. Conseguenze applicate: `firewall-allowlist.json` è stato rimosso (era creato dallo Step 5 del Task 8 e non ha più consumatori) e la questione aperta §12.2 della spec è chiusa perché non più necessaria. Il testo del Task 11 resta qui sotto come documentazione di ciò che era stato progettato, non come lavoro da fare. Se un giorno lo si volesse, la variante da preferire è quella che si autocostruisce il riferimento leggendolo dal firewall al primo avvio, senza nulla da trascrivere a mano.
+**Il Task 11 non si realizza.** Il workflow notturno di riconciliazione del firewall è stato accantonato: il rischio residuo è giudicato accettabile rispetto al costo di mantenere una lista di CIDR di riferimento, e il rischio è documentato in §8 della spec. Conseguenze applicate: `firewall-allowlist.json` è stato rimosso, perché non ha più consumatori. Il testo del Task 11 resta qui sotto come documentazione di ciò che era stato progettato, non come lavoro da fare. Se un giorno lo si volesse, la variante da preferire è quella che si autocostruisce il riferimento leggendolo dal firewall al primo avvio, senza nulla da trascrivere a mano.
 
 ---
 
@@ -1737,10 +1735,25 @@ git commit -m "feat: riconciliazione giornaliera del firewall che fallisce sulla
 
 ### Task 12: Chiusura del README
 
-**Nota del 09/09/2026:** questa attività produceva anche un documento di procedura,
-eliminato su richiesta dell'utente insieme a tutta la documentazione di quel tema. Il
-testo originale del compito è stato rimosso da questa cronaca per coerenza. Resta a
-verbale soltanto che il README è stato completato.
+**Files:**
+- Modify: `README.md`
+
+- [ ] **Step 1: Completa il README con la sezione operativa**
+
+Come si lancia il workflow, dove si trova il report, e la sezione su cosa la suite non
+verifica — rimandando alla spec §11 per le ragioni di ciascuna esclusione.
+
+- [ ] **Step 2: Verifica che la suite completa sia verde**
+
+Run: `npm test`
+Expected: PASS su tutto — script, unitari e sito.
+
+- [ ] **Step 3: Commit**
+
+```bash
+git add README.md
+git commit -m "docs: sezione operativa del README"
+```
 
 ## Verifica finale del piano contro la spec
 
