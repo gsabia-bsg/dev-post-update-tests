@@ -101,26 +101,32 @@ Il runner assume un ruolo AWS via **OIDC** (nessuna chiave statica in GitHub), a
 
 **Il pattern è obbligatoriamente read-modify-restore:**
 
-1. `lightsail:GetInstancePortStates` — leggi i CIDR attualmente consentiti
-2. `lightsail:OpenInstancePublicPorts` — riscrivi la 443 con i CIDR originali **più** l'IP del runner
+1. `GetInstancePortStates` — leggi i CIDR consentiti, e **salva anche il CIDR che stai per aggiungere**
+2. `OpenInstancePublicPorts` — aggiungi l'IP del runner alla 443
 3. esegui i test
-4. `lightsail:OpenInstancePublicPorts` — riscrivi la 443 con **esattamente** l'insieme originale, in uno step `if: always()`
+4. `CloseInstancePublicPorts` — **rimuovi esattamente il CIDR aggiunto**, in uno step `if: always()`
+5. `GetInstancePortStates` di nuovo — **verifica** che il CIDR del runner sia sparito e che quelli originali ci siano ancora. Se non è così, fallisci rumorosamente
 
-Se lo stato originale prevedeva la 443 completamente chiusa, il ripristino usa invece `lightsail:CloseInstancePublicPorts`: è la ragione per cui quell'azione compare nella policy IAM di §8 pur non essendo usata nel percorso normale.
+**La semantica delle due API, verificata sul campo il 09/09/2026:** `Open` **aggiunge** i CIDR indicati, non sostituisce la lista. `Close` **rimuove**. Sono complementari, e insieme raggiungono qualunque stato. Il passo 5 esiste perché ci siamo sbagliati proprio su questo (vedi sotto): da allora la regola è che **non si crede a un comando, si rilegge lo stato**.
 
 L'API `PutInstancePublicPorts` **chiude tutte le porte non elencate nella richiesta** e cancellerebbe l'allowlist dell'ufficio, chiudendo fuori l'utente dal proprio sito. Per questo la policy IAM **non concede** `lightsail:PutInstancePublicPorts`: il workflow non deve avere la capacità fisica di provocare quel danno.
 
 Il ripristino si basa **esclusivamente** sullo stato letto al passo 1 e salvato per la durata del run: nessuna lista di riferimento è committata nel repo. Vedi il rischio accettato in §8.
 
-Verificato al primo run in CI, il 09/09/2026: `OpenInstancePublicPorts` sovrascrive effettivamente la sola porta indicata, lasciando intatte le altre.
+### L'incidente del primo run, e cosa ci ha insegnato
 
-**Ma il primo run ha rivelato un difetto del ripristino, ed è istruttivo.** Lightsail tiene IPv4 e IPv6 in **due campi separati** dello stato di una porta, `cidrs` e `ipv6Cidrs`. Il codice leggeva e riscriveva solo il primo — e riscrivere una porta indicando solo `cidrs` **azzera la lista IPv6 di quella porta**. Risultato: il run ha cancellato la regola `Any IPv6 address` dalla 443 di `dev.bsg.it`, e non poteva rimetterla perché non l'aveva mai letta. Il log lo diceva, per chi sapeva leggerlo: *"443 ripristinata ai 1 CIDR originali"*, quando le voci erano due.
+Il primo run in CI, il 09/09/2026, ha **lasciato l'IP del runner GitHub consentito sulla 443**. La porta è rimasta aperta a `135.232.177.120/32`, un indirizzo che GitHub riassegna ad altri suoi clienti. L'ha notato l'utente guardando la console, non il sistema.
 
-Il danno concreto è stato nullo — anzi ha chiuso per caso un buco reale, perché quella regola apriva le porte 80 e 443 a tutto Internet su IPv6. Ma **il sistema ha modificato qualcosa che aveva promesso di non toccare**, ed è esattamente la classe di errore che il pattern read-modify-restore esiste per prevenire.
+**La causa.** Il ripristino chiamava `OpenInstancePublicPorts` con la lista originale, credendo di sovrascrivere. Ma `Open` è **additiva**: riscrivere la lista originale non toglieva nulla. Il ripristino era un'operazione a vuoto, e dichiarava successo.
 
-Corretto: entrambe le liste vengono lette, conservate e ripristinate, e la scrittura passa da JSON invece che dalla sintassi abbreviata dell'AWS CLI, che con due liste diventa ambigua. Quattro test coprono il caso.
+**La causa della causa, che è quella che conta.** In questa spec era scritto *"si assume che Open sovrascriva; da verificare al primo run"*. Dopo il primo run quella riga è stata cambiata in *"verificato: Open sovrascrive"* — **senza che nessuna verifica fosse stata fatta.** Un'assunzione è stata promossa a fatto accertato perché il run era verde, e il verde veniva da un ripristino che non ripristinava.
 
-Lezione generalizzabile, valida per il prossimo che estenderà questo codice: **un'API che espone lo stato in più campi va riletta e riscritta in tutti i suoi campi.** Ripristinarne un sottoinsieme non è un ripristino parziale, è una modifica.
+Da qui due regole, che valgono oltre questo progetto:
+
+- **Non scrivere "verificato" se non hai guardato.** Un'ipotesi etichettata come fatto è peggio di un'ipotesi dichiarata: la seconda invita al controllo, la prima lo chiude.
+- **Un'operazione che promette di ripristinare uno stato deve rileggere lo stato e confrontarlo.** Il codice ora lo fa, e fallisce rumorosamente se il confronto non torna — compreso il caso opposto, in cui la chiusura porti via anche i CIDR legittimi e chiuda l'utente fuori dal proprio sito.
+
+**Una diagnosi sbagliata, per onestà.** Prima di capire il vero motivo era stata incolpata la gestione dell'IPv6: Lightsail tiene IPv4 e IPv6 in due campi separati (`cidrs` e `ipv6Cidrs`) e il codice leggeva solo il primo. L'ipotesi era che la scrittura avesse azzerato la lista IPv6. **Era falsa**, e la prova era sotto gli occhi: la regola `Any IPv6 address` era ancora là — proprio perché `Open` non cancella niente. La gestione di `ipv6Cidrs` è stata comunque aggiunta, perché è corretta a prescindere, ma non era il problema.
 
 ### D4 — I test girano su HTTPS con `ignoreHTTPSErrors`, mai su HTTP
 
