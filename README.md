@@ -6,21 +6,6 @@ WordPress, plugin o tema.
 **Spec:** `docs/superpowers/specs/2026-09-08-wp-post-update-testing-design.md`
 **Piano:** `docs/superpowers/plans/2026-09-08-wp-post-update-testing.md`
 
-## Uso in locale
-
-Richiede che il proprio IP sia nell'allowlist del firewall Lightsail.
-
-```bash
-npm ci
-npx playwright install chromium
-npm test
-```
-
-- `npm run test:unit` — logica pura, nessuna rete
-- `npm run test:site` — contro dev.bsg.it
-
-Su Linux (e in CI) il browser si installa con `npx playwright install --with-deps chromium`.
-
 ## Variabili d'ambiente
 
 | Variabile | Dove | Effetto |
@@ -43,13 +28,8 @@ ciò che è stato letto all'inizio del run.
 
 **Rischio accettato.** Se il runner viene ucciso di colpo, `if: always()` può non
 eseguire e la 443 resta aperta all'IP di quel runner, che GitHub poi riassegna a
-un altro suo cliente. Era previsto un controllo notturno di riconciliazione per
-coprirlo: si è deciso di non realizzarlo (spec §8). Dopo un run finito male in
-modo anomalo, il controllo è manuale:
-
-```
-aws lightsail get-instance-port-states --instance-name NOME --region REGIONE
-```
+un altro suo cliente. Dopo un run finito male in
+modo anomalo, il controllo sugli ip consentiti nel firewall è manuale:
 
 ## Lanciare i test
 
@@ -59,11 +39,6 @@ gh run watch
 ```
 
 Oppure dalla tab Actions su GitHub, o dall'app mobile.
-
-## Rollback
-
-Vedi `docs/ROLLBACK.md`. Lo snapshot va creato **prima** di aggiornare: con
-trigger manuale la CI entra in scena quando il danno è già fatto.
 
 ## Cosa questa suite non verifica
 
@@ -77,3 +52,14 @@ scelta esplicita, quindi `ignoreHTTPSErrors` è **permanente** e `wp-login.php`
 resta raggiungibile su canale non cifrato. È anche il motivo per cui nessun test
 entra in wp-admin e nessuna credenziale WordPress vive nei secrets: su un canale
 non autenticato non ce la manderemmo.
+
+## Cosa verifica
+Su ognuna delle pagine controlla che:
+
+- si apra davvero non pagina bianca, non errore
+- il CSS sia caricato, cioè non ti ritrovi il sito senza grafica
+- testata, menu, contenuto e piè di pagina ci siano
+- le immagini si vedano
+- non ci siano errori JavaScript nuovi
+- non manchi nessun file (CSS, JS o immagini in 404)
+- il layout non sfondi di lato
