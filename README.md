@@ -6,13 +6,6 @@ WordPress, plugin o tema.
 **Spec:** `docs/superpowers/specs/2026-09-08-wp-post-update-testing-design.md`
 **Piano:** `docs/superpowers/plans/2026-09-08-wp-post-update-testing.md`
 
-## Variabili d'ambiente
-
-| Variabile | Dove | Effetto |
-|---|---|---|
-| `RUN_ID` | test del form | Identificativo scritto nel messaggio inviato, per riconoscere le submission di test |
-| `RECAPTCHA_TEST_KEYS` | test del form | `true` solo se su dev sono configurate le chiavi reCAPTCHA di test; altrimenti il test di invio resta skippato |
-
 ## Come il workflow attraversa il firewall
 
 `dev.bsg.it` ha una restrizione per IP nel firewall Lightsail, quindi un runner

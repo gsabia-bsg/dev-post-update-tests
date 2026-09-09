@@ -35,8 +35,6 @@ jobs:
       LIGHTSAIL_INSTANCE_NAME: ${{ vars.LIGHTSAIL_INSTANCE_NAME }}
       AWS_REGION: ${{ vars.AWS_REGION }}
       STATE_FILE: ${{ github.workspace }}/firewall-state.json
-      RUN_ID: ${{ github.run_id }}-${{ github.run_attempt }}
-      RECAPTCHA_TEST_KEYS: ${{ vars.RECAPTCHA_TEST_KEYS }}
 
     steps:
       - uses: actions/checkout@v4

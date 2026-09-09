@@ -1,17 +1,22 @@
 /**
- * Il form di contatto: l'unico flusso che compila e invia.
- * Si rompe in modo silenzioso — continua a mostrarsi ma l'invio non arriva più.
- * Le cose che possono romperlo aggiornandosi sono MetForm, Elementor ed Elementor Pro.
+ * Il form di contatto. Si rompe in modo silenzioso — continua a mostrarsi ma
+ * l'invio non arriva più — e le cose che possono romperlo aggiornandosi sono
+ * MetForm, Elementor ed Elementor Pro.
+ *
+ * Non c'è un test che invia davvero. Ci abbiamo provato il 09/09/2026, anche
+ * con le chiavi reCAPTCHA di test di Google: il click di un browser pilotato
+ * viene accettato solo ~3 volte su 5, in modo imprevedibile, e ritentarlo
+ * peggiora le cose perché reCAPTCHA si blocca. Scrivere il token direttamente
+ * nei campi non funziona: MetForm lo legge da `grecaptcha.getResponse()` e
+ * blocca l'invio lato client. Le chiavi di test rendono sempre valida la
+ * verifica lato server, non rendono il widget meno sospettoso dell'automazione.
+ *
+ * Un test instabile è peggio di nessun test, quindi si asserisce solo ciò che
+ * è deterministico — e che copre comunque i guasti realistici.
  */
 import { test, expect } from '../fixtures/clean-page';
 
 const PERCORSO = '/contact-us/';
-
-// Finisce nel messaggio inviato, per riconoscere le submission dei test.
-const RUN_ID = process.env.RUN_ID ?? `local-${Date.now()}`;
-
-// Il terzo test invia davvero solo se su dev ci sono le chiavi reCAPTCHA di test.
-const INVIO_ABILITATO = process.env.RECAPTCHA_TEST_KEYS === 'true';
 
 // Solo attributi `name`: gli `id` di MetForm hanno un suffisso casuale che
 // cambia a ogni risalvataggio del form.
@@ -37,53 +42,39 @@ test('il form è idratato e i campi attesi esistono', async ({ cleanPage }) => {
   }
 });
 
-// Se il captcha non si monta, il form si vede ma nessun cliente può inviarlo.
-// Cerchiamo dentro .metform-form-content perché sulla pagina c'è anche il
-// reCAPTCHA del popup Hustle, che non ci riguarda.
-test('il widget reCAPTCHA v2 è renderizzato dentro il form', async ({ cleanPage }) => {
-  await cleanPage.goto(PERCORSO, { waitUntil: 'load' });
-
-  const anchor = cleanPage.locator('.metform-form-content .g-recaptcha iframe[src*="api2/anchor"]');
-  await expect(anchor).toHaveCount(1);
-});
-
-// Una risposta 2xx prova in un colpo: widget idratato, campi presenti,
-// validazione passata, token captcha verificato dal server, submission accettata.
-// Non si asserisce nulla di ciò che appare a schermo: oggi il form mostra sempre
-// un errore SMTP, e quel messaggio cambierebbe configurando un mailer.
-test("l'endpoint REST accetta la submission", async ({ cleanPage }) => {
-  test.skip(
-    !INVIO_ABILITATO,
-    'Richiede le chiavi reCAPTCHA di test su dev — spec D9 e questione aperta §12.4',
-  );
-
+// Il consenso GDPR è obbligatorio: senza la spunta il server rifiuta. L'input
+// vero ha display:none e sta dentro un <label>, quindi è l'etichetta che deve
+// essere cliccabile — se una regressione la nascondesse, nessun visitatore
+// potrebbe più inviare il form.
+test('il consenso GDPR è spuntabile da un utente', async ({ cleanPage }) => {
   await cleanPage.goto(PERCORSO, { waitUntil: 'load' });
   const form = cleanPage.locator('.metform-form-content');
 
-  await form.locator(CAMPI.nome).fill('Test automatico');
-  await form.locator(CAMPI.email).fill('qa@bsg.it');
-  await form.locator(CAMPI.oggetto).fill(`Test post-aggiornamento ${RUN_ID}`);
+  // Click spostato a sinistra di proposito: al centro dell'etichetta c'è il
+  // link alla privacy policy, e ci finiremmo sopra navigando via.
   await form
-    .locator(CAMPI.messaggio)
-    .fill(`Invio automatico della suite post-aggiornamento. RUN_ID=${RUN_ID}. Non rispondere.`);
+    .locator('label:has(input[name="mf-gdpr-consent"])')
+    .click({ position: { x: 6, y: 11 } });
 
-  // Obbligatorio: senza la spunta il server rifiuta.
-  await form.locator(CAMPI.consenso).check();
+  await expect(form.locator(CAMPI.consenso)).toBeChecked();
+});
 
-  // La casella vive in un iframe di Google, serve frameLocator per entrarci.
+// Questo è il test che vale di più dei tre, ed è emerso dalla diagnosi: non
+// basta che l'iframe di Google esista. Se il widget resta bloccato nello stato
+// di caricamento, il form si vede normalmente ma il server rifiuta ogni invio
+// perché il token non c'è — e il visitatore non capisce perché.
+// Verificato che a widget non disturbato l'inizializzazione va a buon fine
+// sistematicamente (11 caricamenti su 11), quindi questa asserzione è stabile.
+test('il widget reCAPTCHA si carica e diventa utilizzabile', async ({ cleanPage }) => {
+  await cleanPage.goto(PERCORSO, { waitUntil: 'load' });
+
   const casella = cleanPage
     .frameLocator('.metform-form-content iframe[src*="api2/anchor"]')
     .locator('#recaptcha-anchor');
-  await casella.click();
-  await expect(casella).toHaveAttribute('aria-checked', 'true');
 
-  // In ascolto prima del click, altrimenti la risposta può arrivare troppo presto.
-  const attesaRisposta = cleanPage.waitForResponse(
-    (r) => r.url().includes('/metform/v1/entries') && r.request().method() === 'POST',
+  await expect(casella).toBeVisible({ timeout: 30_000 });
+  await expect(casella, 'il widget resta bloccato in caricamento').not.toHaveClass(
+    /recaptcha-checkbox-loading/,
+    { timeout: 30_000 },
   );
-  await form.locator(CAMPI.invia).click();
-  const risposta = await attesaRisposta;
-
-  expect(risposta.status(), 'status della submission REST').toBeGreaterThanOrEqual(200);
-  expect(risposta.status(), 'status della submission REST').toBeLessThan(300);
 });

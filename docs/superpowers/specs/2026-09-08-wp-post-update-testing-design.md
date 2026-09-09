@@ -160,15 +160,28 @@ Una risposta **2xx** prova in un colpo che: il widget Elementor si è idratato, 
 
 Ogni invio porta un **run-ID univoco** nel corpo del messaggio, così le submission di test sono riconoscibili a mano in MetForm → Entries.
 
-### D9 — reCAPTCHA: chiavi di test Google, solo su dev
+### D9 — Il test di invio del form: provato, misurato, abbandonato
 
-Google pubblica una coppia di chiavi di test per reCAPTCHA v2 che superano sempre la verifica. Configurate nelle impostazioni MetForm **del solo dev**, il widget continua a caricarsi, montarsi, produrre un token e farlo verificare lato server — resta esercitata l'integrazione reale, e con essa la capacità di accorgersi che un update l'ha rotta. Solo il verdetto è forzato positivo.
+**Decisione finale: non esiste un test che invia il form.** L'idea era configurare su dev le chiavi reCAPTCHA di test di Google, che rendono sempre valida la verifica, così da poter inviare davvero. È stata realizzata e messa alla prova il 09/09/2026. Non funziona, e le misure spiegano perché.
 
-Questo è preferibile a disattivare il captcha, che renderebbe lo staging cieco al guasto più insidioso: un aggiornamento che rompe il captcha e rende il form **non inviabile per i clienti veri**.
+**Cosa abbiamo trovato, in ordine.**
 
-**Vincolo esplicito e non negoziabile:** quelle chiavi devono vivere solo su `dev.bsg.it`. In produzione farebbero accettare qualunque bot.
+Il consenso GDPR non era cliccabile: l'`input` ha `display:none` e sta dentro un `<label>`. Risolto cliccando l'etichetta, con il click spostato a sinistra perché al centro c'è il link alla privacy policy.
 
-**Prerequisito non ancora confermato** (vedi §12): se le chiavi di test non vengono configurate, il test del form si limita a verificare che form e widget captcha si renderizzino, senza inviare. Con la site key reale, un browser automatizzato da un IP di datacenter riceve con alta probabilità una sfida a immagini, che Playwright non può risolvere.
+Il widget captcha nasce disabilitato mentre si inizializza, e MetForm chiama `renderReCaptcha` **due volte** — a idratazione e a `window.onload`, che scatta proprio quando `goto()` ritorna. Cliccare in quella finestra significa cliccare un widget che sta per essere ricreato.
+
+Il ciclo di ritentativi introdotto per aggirarlo **peggiorava** la situazione: cliccare ripetutamente un reCAPTCHA lo manda in blocco permanente. Passaggio da 40% a 60% di successo attendendo la stabilità e cliccando una volta sola — comunque inaccettabile.
+
+Scrivere il token direttamente nei campi non funziona: **0 su 5**. MetForm lo legge da `grecaptcha.getResponse()`, lo trova vuoto e blocca l'invio lato client. La POST non parte nemmeno.
+
+**La causa vera:** le chiavi di test rendono sempre positiva la verifica **lato server**, non rendono il widget meno sospettoso dell'automazione. reCAPTCHA v2 fa da sé rilevamento del browser pilotato, e accetta il click in modo imprevedibile. Un test instabile è peggio di nessun test.
+
+**Cosa è stato messo al suo posto**, e vale più di quanto si è perso. Una diagnosi separata ha stabilito che a widget non disturbato l'inizializzazione riesce sistematicamente (11 caricamenti su 11), quindi due asserzioni deterministiche sono possibili e coprono i due modi in cui il form diventa **inutilizzabile per i clienti restando all'apparenza normale**:
+
+- il **consenso GDPR è spuntabile da un utente** — se una regressione CSS nascondesse l'etichetta, nessuno potrebbe più inviare
+- il **widget reCAPTCHA si carica e diventa utilizzabile** — se restasse bloccato in caricamento, il server rifiuterebbe ogni invio per token assente, e il visitatore non capirebbe perché
+
+**Conseguenze pratiche:** le chiavi di test su dev non servono più e vanno rimesse quelle reali, perché nel frattempo indeboliscono lo staging. La variabile `RECAPTCHA_TEST_KEYS` e `RUN_ID` sono state rimosse da workflow e documentazione: non le legge più nessuno.
 
 ### D10 — Rollback manuale via snapshot Lightsail
 
@@ -389,6 +402,7 @@ Playwright pinnato a versione esatta; Dependabot sulle versioni delle action.
 
 La suite **non** verifica:
 
+- che un invio del form venga **accettato dal server**: nessun test invia davvero, perché reCAPTCHA v2 non lo consente in modo affidabile a un browser automatizzato (D9). Si verifica che il form sia utilizzabile — campi presenti, consenso spuntabile, captcha inizializzato — non che la submission arrivi
 - che la notifica email venga generata (conseguenza di D11 + D7)
 - che l'entry sia persistita a database (conseguenza di D7)
 - che la consegna della posta funzioni (conseguenza di D11)
@@ -401,12 +415,16 @@ La suite **non** verifica:
 
 ## 12. Questioni aperte
 
-Bloccanti per l'implementazione:
+**Non ne restano di bloccanti.** Risolte tutte il 09/09/2026:
 
-1. **Nome esatto dell'istanza Lightsail e regione** — servono per la policy IAM e le chiamate API
-2. **Chi crea il ruolo IAM** su AWS: serve un'utenza con permessi IAM, non solo Lightsail
-3. **Repo GitHub**: organizzazione e nome, da creare o esistente
-4. **Chiavi reCAPTCHA di test su dev**: si configurano o no? Decide se il test del form invia davvero o si limita al rendering (D9)
+| Questione | Risposta |
+|---|---|
+| Istanza Lightsail e regione | `bsg-website-dev`, `eu-central-1` (Frankfurt) |
+| Repo GitHub | `gsabia-bsg/dev-post-update-tests`, privato |
+| Ruolo IAM | Creato: provider OIDC, policy `dev-bsg-firewall-ci`, ruolo `dev-bsg-firewall-ci-role` |
+| Chiavi reCAPTCHA di test | Non servono più, vedi D9. Su dev vanno rimesse quelle reali |
+
+Resta solo da eseguire: mettere `AWS_ROLE_ARN` fra i secret del repo e le due variabili `LIGHTSAIL_INSTANCE_NAME` e `AWS_REGION`, poi lanciare il workflow una prima volta e verificare a mano che il firewall torni allo stato iniziale.
 
 Chiuse l'08/09/2026:
 

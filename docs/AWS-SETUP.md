@@ -113,7 +113,6 @@ Settings → Secrets and variables → Actions:
 | `AWS_ROLE_ARN` | Secret | l'ARN del ruolo creato al passo 3 |
 | `LIGHTSAIL_INSTANCE_NAME` | Variable | `bsg-website-dev` |
 | `AWS_REGION` | Variable | `eu-central-1` |
-| `RECAPTCHA_TEST_KEYS` | Variable | `false` (metti `true` solo dopo aver configurato le chiavi di test su dev) |
 
 ## Passo 5 — La prova
 
