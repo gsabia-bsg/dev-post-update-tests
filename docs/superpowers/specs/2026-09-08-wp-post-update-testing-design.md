@@ -13,7 +13,7 @@ Dopo ogni aggiornamento manuale di WordPress, di un plugin o del tema su `dev.bs
 **Fuori ambito, deliberatamente:**
 
 - eseguire gli aggiornamenti (restano manuali, da wp-admin)
-- rollback automatico (resta una procedura manuale documentata)
+- riparare o annullare un aggiornamento: la suite segnala, non interviene
 - testare la produzione
 - monitoraggio continuo o uptime check
 
@@ -89,7 +89,7 @@ Gli aggiornamenti restano manuali; i test si lanciano a mano dopo averli fatti. 
 
 `workflow_dispatch`, `schedule` e `repository_dispatch` convivono nello stesso file: passare in futuro al controllo notturno o a un hook WordPress è un'aggiunta di poche righe, non una riprogettazione.
 
-**Conseguenza accettata:** il rollback resta manuale (vedi D10), perché quando la CI entra in scena l'aggiornamento è già avvenuto.
+**Conseguenza accettata:** quando la CI entra in scena l'aggiornamento è già avvenuto, quindi la suite può soltanto segnalare, non prevenire.
 
 ### D2 — Runner GitHub-hosted, non self-hosted sull'istanza
 
@@ -127,6 +127,35 @@ Da qui due regole, che valgono oltre questo progetto:
 - **Un'operazione che promette di ripristinare uno stato deve rileggere lo stato e confrontarlo.** Il codice ora lo fa, e fallisce rumorosamente se il confronto non torna — compreso il caso opposto, in cui la chiusura porti via anche i CIDR legittimi e chiuda l'utente fuori dal proprio sito.
 
 **Una diagnosi sbagliata, per onestà.** Prima di capire il vero motivo era stata incolpata la gestione dell'IPv6: Lightsail tiene IPv4 e IPv6 in due campi separati (`cidrs` e `ipv6Cidrs`) e il codice leggeva solo il primo. L'ipotesi era che la scrittura avesse azzerato la lista IPv6. **Era falsa**, e la prova era sotto gli occhi: la regola `Any IPv6 address` era ancora là — proprio perché `Open` non cancella niente. La gestione di `ipv6Cidrs` è stata comunque aggiunta, perché è corretta a prescindere, ma non era il problema.
+
+### Il tranello dell'identità OIDC
+
+Costato un'ora il 09/09/2026, e da tenere se un giorno il ruolo va ricreato.
+
+Creando un ruolo *Web identity* per GitHub, la console AWS genera una condizione sul subject del token in questa forma:
+
+```
+repo:gsabia-bsg/dev-post-update-tests:*
+```
+
+Ma GitHub emette un subject con gli **identificativi numerici** di utente e repository attaccati con la `@`:
+
+```
+repo:gsabia-bsg@261906451/dev-post-update-tests@1361551299:ref:refs/heads/main
+```
+
+È il formato a identificatori immutabili: impedisce che qualcuno cancelli un repository e ne crei un altro con lo stesso nome per impersonarlo. Con la condizione generata dalla console le due stringhe non combaciano, e AWS rifiuta.
+
+La condizione corretta per questo ruolo è quindi:
+
+```
+"token.actions.githubusercontent.com:sub":
+  "repo:gsabia-bsg@261906451/dev-post-update-tests@1361551299:*"
+```
+
+**Perché è stato difficile da trovare.** AWS risponde `Not authorized to perform sts:AssumeRoleWithWebIdentity` **sia** quando i permessi mancano **sia** quando il subject non combacia — due cause opposte, un solo messaggio. E nel secondo caso **non scrive nulla in CloudTrail**, in nessuna regione: manca perfino il rifiuto da leggere. Tutto ciò che si può ispezionare — provider, audience, policy, ruolo, ARN — risulta corretto, e questo fa sospettare un divieto a livello di organizzazione, cioè qualcosa fuori dalla propria portata.
+
+**Come si diagnostica.** Stampando i claim del token dal workflow, in uno step che precede la chiamata ad AWS: è l'unico modo di vedere cosa GitHub manda davvero, invece di continuare a verificare cosa AWS si aspetta. Lo step usato allora sta nella cronologia del repository, commit `399ab85`.
 
 ### D4 — I test girano su HTTPS con `ignoreHTTPSErrors`, mai su HTTP
 
@@ -199,26 +228,9 @@ Scrivere il token direttamente nei campi non funziona: **0 su 5**. MetForm lo le
 
 **Lo scambio è stato posto all'utente ed è stato deciso.** Esiste una strada per avere un test di invio deterministico: **togliere il reCAPTCHA dal form su dev**. Ma è uno scambio, non un guadagno: si perderebbe l'asserzione che il captcha si inizializzi, e un captcha bloccato rende il form inutilizzabile per *tutti* i visitatori mentre il sito sembra normale. Copertura sul captcha oppure sull'invio, non entrambe. **Il 09/09/2026 l'utente ha scelto di tenere il captcha**, perché è l'integrazione più fragile delle due — ha già il difetto di doppio rendering documentato in §2.4. Non riaprire la questione senza un motivo nuovo.
 
-### D10 — Rollback manuale via snapshot Lightsail
+### D10 — rimossa
 
-Lo snapshot va creato **prima** dell'aggiornamento, a mano, perché con trigger manuale la CI entra in scena quando il danno è già fatto.
-
-**Dettaglio operativo critico:** su Lightsail il ripristino di uno snapshot **non sovrascrive l'istanza esistente**. Crea una *nuova* istanza dallo snapshot; l'IP statico va poi spostato sulla nuova e la vecchia dismessa. Chi non lo sa lo scopre nel momento peggiore.
-
-Per un singolo plugin andato male la via corta è reinstallare la versione precedente, non il ripristino completo, che è il rimedio per il core rotto.
-
-**La procedura completa, se si arriva al ripristino da snapshot:**
-
-1. `aws lightsail create-instances-from-snapshot` — crea la nuova istanza
-2. attendi che sia `running`
-3. **sposta l'IP statico** dalla vecchia alla nuova: Lightsail → Networking → l'IP statico → Attach to instance
-4. verifica che `https://dev.bsg.it` risponda dalla nuova
-5. **riapplica a mano la restrizione IP nel firewall**: la nuova istanza nasce con le regole di default, quindi l'allowlist non c'è. Conviene fotografare le regole **prima** del ripristino, con `aws lightsail get-instance-port-states --instance-name VECCHIA` oppure con uno screenshot della console
-6. solo dopo aver verificato tutto, dismetti la vecchia istanza
-
-Il passo 5 è quello che si dimentica, e senza di esso la nuova istanza resta esposta a Internet o inaccessibile, a seconda dei default.
-
-*Nota del 09/09/2026:* questa procedura stava in `docs/ROLLBACK.md`, che l'utente ha chiesto di eliminare. È stata riportata qui perché il passo 5 non era documentato in nessun altro punto e senza di esso il ripristino si conclude male.
+Decisione ritirata su richiesta dell'utente il 09/09/2026. Il numero resta vacante per non invalidare i riferimenti nelle altre sezioni.
 
 ### D11 — Su dev non si configura alcun mailer
 
@@ -299,11 +311,10 @@ repo privato
 ├── scripts/
 │   ├── firewall.mjs                 apre e ripristina la 443, unico punto che parla con AWS
 │   └── lib/cidr-plan.mjs            calcolo puro delle regole, coperto da test
-├── .github/workflows/post-update.yml   orchestrazione, nessuna logica di test
-└── docs/AWS-SETUP.md                procedura IAM, da eseguire una volta sola
+└── .github/workflows/post-update.yml   orchestrazione, nessuna logica di test
 ```
 
-Questo è lo stato realmente costruito al 09/09/2026, non il disegno iniziale: il workflow di riconciliazione non esiste (§8), la logica del firewall sta in `scripts/` e non in una composite action, e `docs/ROLLBACK.md` è stato eliminato su richiesta dell'utente (D10).
+Questo è lo stato realmente costruito al 09/09/2026, non il disegno iniziale: il workflow di riconciliazione non esiste (§8) e la logica del firewall sta in `scripts/` e non in una composite action.
 
 `targets.json` è **dati, non codice**: si modifica senza toccare TypeScript. Lo script del firewall è l'unico pezzo che parla con AWS, e il calcolo delle regole è separato dalle chiamate proprio per poter essere collaudato senza conseguenze.
 
@@ -382,7 +393,7 @@ Scritta una volta come fixture Playwright, si applica a tutta la suite.
 ## 8. Sicurezza
 
 - **OIDC, non chiavi statiche.** In GitHub non vive nessuna credenziale AWS permanente
-- **Policy IAM ristretta** a `GetInstancePortStates`, `OpenInstancePublicPorts` e `CloseInstancePublicPorts`. `PutInstancePublicPorts` **non concessa**, per rendere impossibile la cancellazione dell'allowlist. *Correzione dell'08/09/2026:* il disegno prevedeva di restringere la policy anche all'ARN della singola istanza, ma Lightsail ha un supporto limitato ai permessi a livello di risorsa, quindi la policy usa `"Resource": "*"` e la restrizione viene dal solo elenco delle azioni. Se l'account contiene altre istanze Lightsail va verificato se per queste azioni è disponibile una condizione basata sui tag — vedi `docs/AWS-SETUP.md`
+- **Policy IAM ristretta** a `GetInstancePortStates`, `OpenInstancePublicPorts` e `CloseInstancePublicPorts`. `PutInstancePublicPorts` **non concessa**, per rendere impossibile la cancellazione dell'allowlist. *Correzione dell'08/09/2026:* il disegno prevedeva di restringere la policy anche all'ARN della singola istanza, ma Lightsail ha un supporto limitato ai permessi a livello di risorsa, quindi la policy usa `"Resource": "*"` e la restrizione viene dal solo elenco delle azioni. Se l'account contiene altre istanze Lightsail va verificato se per queste azioni è disponibile una condizione basata sui tag
 - **Finestra di apertura minima:** solo la 443, solo l'IP del runner, solo per la durata del run
 - **Chiusura in `if: always()`**, perché un test in timeout non lasci la porta aperta
 - **Rischio accettato, senza rete di sicurezza automatica.** Se il runner viene ucciso di colpo — la macchina virtuale muore, il job è cancellato brutalmente — lo step `if: always()` può non eseguire e la 443 resta aperta all'IP di quel runner, che GitHub poi riassegna a un altro suo cliente. Il rischio concreto è che un utente qualunque di GitHub Actions raggiunga `dev.bsg.it`, dove `wp-login.php` risponde in chiaro su HTTP. Era previsto un workflow di riconciliazione giornaliero per coprirlo; **l'utente ha deciso l'08/09/2026 di non realizzarlo**, giudicando il rischio residuo accettabile rispetto al costo di mantenere una lista di CIDR di riferimento. Se un giorno lo si volesse, la versione da preferire è quella che si autocostruisce il riferimento leggendolo dal firewall al primo avvio, senza nulla da trascrivere a mano. Nel frattempo il controllo è manuale: `aws lightsail get-instance-port-states` dopo un run finito male
@@ -399,7 +410,7 @@ Scritta una volta come fixture Playwright, si applica a tutta la suite.
 ## 9. Costi
 
 - **GitHub Actions:** un run di smoke consuma 2-3 minuti su `ubuntu-latest` (moltiplicatore 1x). Il piano Free include 2.000 minuti/mese su repo privati — da verificare sul piano in uso. Anche venti aggiornamenti al mese restano largamente nel gratuito, **a condizione di cachare i browser Playwright**: senza cache il download se ne mangia circa metà
-- **Lightsail:** nessun costo aggiuntivo. Gli snapshot sono fatturati a circa 0,05 $/GB-mese, quindi conservarne uno da 40 GB è nell'ordine dei 2 $/mese. Non conservarne dieci
+- **Lightsail:** nessun costo aggiuntivo
 - **AWS API:** le chiamate Lightsail usate sono gratuite
 
 ---

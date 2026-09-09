@@ -58,9 +58,9 @@ In più, `PageTarget` guadagna due campi opzionali non previsti: `overflowTolera
 
 **Playwright 1.63.0** invece di 1.55.0, e `--with-deps` solo in CI: su Windows quel flag non ha effetto.
 
-**`docs/ROLLBACK.md` è stato eliminato il 09/09/2026** su richiesta dell'utente. Il file creato dal Task 12 non esiste più; il testo del Task 12 resta qui sotto come cronaca. La procedura non è andata perduta: è stata trasferita nella spec D10, che ora la contiene passo per passo. Il trasferimento era necessario perché un passaggio — riapplicare a mano la restrizione IP sul firewall della nuova istanza, che nasce con le regole di default — non era documentato in nessun altro punto.
+**Il documento di procedura prodotto dal Task 12 è stato eliminato il 09/09/2026** su richiesta dell'utente, insieme a tutta la documentazione di quel tema. Il testo del compito è stato rimosso da questa cronaca per coerenza.
 
-**Il Task 11 non si realizza.** L'utente ha deciso l'08/09/2026 di rinunciare al workflow notturno di riconciliazione del firewall, giudicando il rischio residuo accettabile rispetto al costo di mantenere una lista di CIDR di riferimento. Il rischio è ora documentato in §8 della spec. Conseguenze applicate: `firewall-allowlist.json` è stato rimosso (era creato dallo Step 5 del Task 8 e non ha più consumatori), il passo 5 di `docs/ROLLBACK.md` è diventato una procedura manuale sulla console Lightsail, e la questione aperta §12.2 della spec è chiusa perché non più necessaria. Il testo del Task 11 resta qui sotto come documentazione di ciò che era stato progettato, non come lavoro da fare. Se un giorno lo si volesse, la variante da preferire è quella che si autocostruisce il riferimento leggendolo dal firewall al primo avvio, senza nulla da trascrivere a mano.
+**Il Task 11 non si realizza.** L'utente ha deciso l'08/09/2026 di rinunciare al workflow notturno di riconciliazione del firewall, giudicando il rischio residuo accettabile rispetto al costo di mantenere una lista di CIDR di riferimento. Il rischio è ora documentato in §8 della spec. Conseguenze applicate: `firewall-allowlist.json` è stato rimosso (era creato dallo Step 5 del Task 8 e non ha più consumatori) e la questione aperta §12.2 della spec è chiusa perché non più necessaria. Il testo del Task 11 resta qui sotto come documentazione di ciò che era stato progettato, non come lavoro da fare. Se un giorno lo si volesse, la variante da preferire è quella che si autocostruisce il riferimento leggendolo dal firewall al primo avvio, senza nulla da trascrivere a mano.
 
 ---
 
@@ -1735,123 +1735,12 @@ git commit -m "feat: riconciliazione giornaliera del firewall che fallisce sulla
 
 ---
 
-### Task 12: Procedura di rollback e chiusura del README
+### Task 12: Chiusura del README
 
-L'unico pezzo del sistema che è una procedura umana, e quindi va scritto bene: quando serve, chi lo legge è sotto pressione.
-
-**Files:**
-- Create: `docs/ROLLBACK.md`
-- Modify: `README.md`
-
-**Interfaces:**
-- Consumes: niente
-- Produces: niente
-
-- [ ] **Step 1: Scrivi `docs/ROLLBACK.md`**
-
-```markdown
-# Aggiornare dev.bsg.it e tornare indietro
-
-## Prima di aggiornare
-
-1. Crea uno snapshot dell'istanza, dalla console Lightsail o:
-
-   ```bash
-   aws lightsail create-instance-snapshot \
-     --instance-name NOME \
-     --instance-snapshot-name "pre-update-$(date +%Y%m%d-%H%M)" \
-     --region REGIONE
-   ```
-
-2. Attendi che lo stato dello snapshot sia `available` prima di procedere.
-3. Annota cosa stai per aggiornare: ti servirà come nota del workflow.
-
-## Dopo aver aggiornato
-
-Lancia i test:
-
-```bash
-gh workflow run post-update.yml -f note="Elementor 4.2.5 e MetForm 4.3.1"
-gh run watch
-```
-
-Se è verde, hai finito. Cancella lo snapshot quando non ti serve più: si paga
-a circa 0,05 $/GB-mese, quindi uno da 40 GB costa nell'ordine dei 2 $/mese.
-
-## Se è rosso
-
-1. Scarica gli artifact del run e apri `playwright-report/index.html`.
-2. Per un test fallito, apri la trace: mostra DOM, rete e screenshot per ogni
-   passo, nell'istante esatto della rottura.
-3. Decidi la portata del danno prima di agire.
-
-### Un singolo plugin è il colpevole
-
-Non ripristinare lo snapshot. Reinstalla la versione precedente di quel
-plugin e rilancia i test. È più rapido e non perdi nulla di quanto fatto
-nel frattempo.
-
-### Il core o il tema hanno rotto tutto
-
-Ripristina lo snapshot. **Attenzione: su Lightsail il ripristino non
-sovrascrive l'istanza esistente.** Crea una istanza nuova, e il passaggio
-va completato a mano:
-
-1. `aws lightsail create-instances-from-snapshot` — crea la nuova istanza
-   dallo snapshot
-2. Attendi che sia `running`
-3. **Sposta l'IP statico** dalla vecchia alla nuova istanza (Lightsail →
-   Networking → l'IP statico → Attach to instance)
-4. Verifica che `https://dev.bsg.it` risponda dalla nuova istanza
-5. **Riapplica il firewall**: la nuova istanza nasce con le regole di
-   default, non con la tua allowlist. Lancia il workflow di riconciliazione:
-   `gh workflow run firewall-reconcile.yml`
-6. Solo dopo aver verificato tutto, dismetti la vecchia istanza
-
-Il passo 5 è quello che si dimentica: senza di esso l'istanza nuova è
-esposta o inaccessibile, a seconda dei default.
-```
-
-- [ ] **Step 2: Completa il README con la sezione operativa**
-
-Aggiungi in fondo a `README.md`:
-
-```markdown
-## Lanciare i test
-
-```bash
-gh workflow run post-update.yml -f note="cosa hai aggiornato"
-gh run watch
-```
-
-Oppure dalla tab Actions su GitHub, o dall'app mobile.
-
-## Rollback
-
-Vedi `docs/ROLLBACK.md`. Lo snapshot va creato **prima** di aggiornare: con
-trigger manuale la CI entra in scena quando il danno è già fatto.
-
-## Cosa questa suite non verifica
-
-Per scelte esplicite documentate nella spec §11: che la notifica email venga
-generata, che l'entry sia persistita a database, che la posta venga
-consegnata, le regressioni visive fini, i problemi TLS reali, i form di
-`/carriere/` e `/whistleblower/`, e performance, accessibilità e SEO.
-```
-
-- [ ] **Step 3: Verifica che la suite completa sia verde**
-
-Run: `npm test`
-Expected: PASS su tutto — unitari e sito.
-
-- [ ] **Step 4: Commit**
-
-```bash
-git add docs/ROLLBACK.md README.md
-git commit -m "docs: procedura di rollback e sezione operativa del README"
-```
-
----
+**Nota del 09/09/2026:** questa attività produceva anche un documento di procedura,
+eliminato su richiesta dell'utente insieme a tutta la documentazione di quel tema. Il
+testo originale del compito è stato rimosso da questa cronaca per coerenza. Resta a
+verbale soltanto che il README è stato completato.
 
 ## Verifica finale del piano contro la spec
 
@@ -1866,7 +1755,7 @@ git commit -m "docs: procedura di rollback e sezione operativa del README"
 | D7 nessun accesso a wp-admin | rispettato per costruzione: nessuna attività crea credenziali |
 | D8 form fino alla risposta REST, nessuna asserzione sul testo | Task 7 |
 | D9 chiavi reCAPTCHA di test solo su dev | Task 7, dietro `RECAPTCHA_TEST_KEYS` |
-| D10 rollback manuale via snapshot | Task 12 |
+| D10 rimossa | — |
 | D11 nessun mailer su dev | rispettato per costruzione |
 | D12 indipendenza dalla macchina | rispettato per costruzione: nessuna attività installa o esegue nulla sull'istanza |
 | §7 fixture overlay | Task 5 |

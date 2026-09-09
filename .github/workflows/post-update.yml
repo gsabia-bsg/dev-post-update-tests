@@ -69,8 +69,8 @@ jobs:
       # "Not authorized to perform sts:AssumeRoleWithWebIdentity", la causa piu'
       # probabile e' che il subject del token non combaci con la condizione
       # nella trust policy — e AWS non lascia traccia in CloudTrail. Il modo per
-      # vederlo e' stampare i claim del token: la procedura e il tranello degli
-      # identificativi numerici sono in docs/AWS-SETUP.md.
+      # vederlo e' stampare i claim del token: il tranello degli identificativi
+      # numerici e' spiegato nella spec, sezione "Il tranello dell'identita' OIDC".
       - name: Credenziali AWS temporanee via OIDC
         uses: aws-actions/configure-aws-credentials@v4
         with:
