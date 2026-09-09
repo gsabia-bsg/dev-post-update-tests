@@ -12,7 +12,7 @@
  *   node scripts/firewall.mjs restore --instance NOME --region REGIONE --state-file PATH
  */
 import { execFileSync } from 'node:child_process';
-import { readFileSync, writeFileSync } from 'node:fs';
+import { existsSync, readFileSync, writeFileSync } from 'node:fs';
 import { planOpen, planRestore } from './lib/cidr-plan.mjs';
 
 const PORTA = 443;
@@ -106,6 +106,14 @@ if (comando === 'open') {
   scriviPorta(instance, region, piano);
   console.log(`443 aperta a ${piano.cidrs.length} CIDR (aggiunto ${ip}); stato originale in ${stateFile}`);
 } else if (comando === 'restore') {
+  // Se il file di stato non c'è, l'apertura non è avvenuta: la porta non è mai
+  // stata toccata e non c'è niente da ripristinare. Fallire qui aggiungerebbe
+  // solo un secondo errore sopra quello vero, mascherandolo.
+  if (!existsSync(stateFile)) {
+    console.log(`nessuno stato da ripristinare: ${stateFile} non esiste, la porta non è stata aperta`);
+    process.exit(0);
+  }
+
   const originale = JSON.parse(readFileSync(stateFile, 'utf8'));
   const piano = planRestore(originale, PORTA);
   if (piano === null) {

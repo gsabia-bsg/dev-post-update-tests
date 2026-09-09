@@ -39,9 +39,13 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      # Node 24 come in locale: il runner di test integrato supporta i glob solo
+      # da Node 21, e su 20 `node --test "scripts/**/*.test.mjs"` non trova
+      # niente. Tenere le due versioni allineate evita l'intera categoria dei
+      # "funziona sul mio computer".
       - uses: actions/setup-node@v4
         with:
-          node-version: 20
+          node-version: 24
           cache: npm
 
       - run: npm ci
@@ -72,6 +76,7 @@ jobs:
         run: echo "value=$(curl -sS --max-time 10 https://checkip.amazonaws.com)" >> "$GITHUB_OUTPUT"
 
       - name: Apri la 443 per questo runner
+        id: apri
         run: >
           node scripts/firewall.mjs open
           --instance "$LIGHTSAIL_INSTANCE_NAME"
@@ -82,10 +87,13 @@ jobs:
       - name: Test sul sito
         run: npm run test:site
 
-      # if: always() — un test che fallisce o va in timeout non deve lasciare
-      # la porta aperta. Sta dopo i test proprio per questo.
+      # always() — un test che fallisce o va in timeout non deve lasciare la
+      # porta aperta. Ma solo se l'apertura è davvero avvenuta: se il run si
+      # ferma prima (per esempio ai test unitari), non c'è niente da
+      # ripristinare e questo step aggiungerebbe solo un secondo rosso che
+      # maschera l'errore vero.
       - name: Ripristina il firewall
-        if: always()
+        if: always() && steps.apri.outcome == 'success'
         run: >
           node scripts/firewall.mjs restore
           --instance "$LIGHTSAIL_INSTANCE_NAME"
